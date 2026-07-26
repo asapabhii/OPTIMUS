@@ -1,0 +1,35 @@
+# Plane B — FastAPI API server
+FROM python:3.11-slim AS base
+
+WORKDIR /app
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy dependency files
+COPY pyproject.toml ./
+
+# Install dependencies
+RUN uv sync --no-dev --no-install-project
+
+# Copy application code
+COPY libs/ libs/
+COPY core/ core/
+COPY engine/ engine/
+COPY connectors/ connectors/
+COPY services/api/ services/api/
+COPY migrations/ migrations/
+COPY alembic.ini ./
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+
+CMD ["uv", "run", "uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

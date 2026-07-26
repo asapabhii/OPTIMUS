@@ -1,0 +1,16 @@
+# Invalidation worker — webhook-driven staleness marking
+FROM python:3.11-slim AS base
+
+WORKDIR /app
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+COPY pyproject.toml ./
+RUN uv sync --no-dev --no-install-project
+
+COPY libs/ libs/
+COPY core/ core/
+COPY engine/ engine/
+COPY services/invalidation/ services/invalidation/
+
+CMD ["uv", "run", "python", "-m", "services.invalidation.main"]

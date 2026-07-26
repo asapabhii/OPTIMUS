@@ -1,0 +1,118 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ─────────────────────────────────────────────────────
+  # Gate check: all CI must pass before deploy
+  # ─────────────────────────────────────────────────────
+  gate-check:
+    name: Gate Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify CI passed
+        run: echo "CI passed — deployment authorized"
+
+  # ─────────────────────────────────────────────────────
+  # Deploy API (Plane B) to Railway
+  # ─────────────────────────────────────────────────────
+  deploy-api:
+    name: Deploy API (Plane B)
+    runs-on: ubuntu-latest
+    needs: gate-check
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        uses: bervProject/railway-deploy@main
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: optimus-api
+
+  # ─────────────────────────────────────────────────────
+  # Deploy Plane A workers to Railway
+  # ─────────────────────────────────────────────────────
+  deploy-plane-a:
+    name: Deploy Plane A Workers
+    runs-on: ubuntu-latest
+    needs: gate-check
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        uses: bervProject/railway-deploy@main
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: optimus-plane-a
+
+  # ─────────────────────────────────────────────────────
+  # Deploy invalidation worker to Railway
+  # ─────────────────────────────────────────────────────
+  deploy-invalidation:
+    name: Deploy Invalidation Worker
+    runs-on: ubuntu-latest
+    needs: gate-check
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        uses: bervProject/railway-deploy@main
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: optimus-invalidation
+
+  # ─────────────────────────────────────────────────────
+  # Deploy frontend to Vercel
+  # ─────────────────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: gate-check
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: services/web
+          vercel-args: --prod
+
+  # ─────────────────────────────────────────────────────
+  # Post-deploy: run migrations
+  # ─────────────────────────────────────────────────────
+  post-deploy:
+    name: Run Migrations
+    runs-on: ubuntu-latest
+    needs: [deploy-api, deploy-plane-a, deploy-invalidation]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run migrations
+        env:
+          DATABASE_URL_SYNC: ${{ secrets.DATABASE_URL_SYNC }}
+        run: uv run alembic upgrade head

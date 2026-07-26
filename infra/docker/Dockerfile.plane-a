@@ -1,0 +1,21 @@
+# Plane A — async workers (ingestion, extraction, reconciliation, indexing)
+FROM python:3.11-slim AS base
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+COPY pyproject.toml ./
+RUN uv sync --no-dev --no-install-project
+
+COPY libs/ libs/
+COPY core/ core/
+COPY engine/ engine/
+COPY connectors/ connectors/
+COPY services/plane_a/ services/plane_a/
+
+CMD ["uv", "run", "python", "-m", "services.plane_a.main"]

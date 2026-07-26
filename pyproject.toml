@@ -1,0 +1,126 @@
+[project]
+name = "optimus-trustlayer"
+version = "0.1.0"
+description = "A multi-tier knowledge operating system — entity resolution, conflict arbitration, governed truth."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+
+dependencies = [
+    # --- Core ---
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+    "sqlalchemy[asyncio]>=2.0.35",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+    "httpx>=0.27.0",
+
+    # --- Adapters: managed vendors (commercial edition) ---
+    "nango>=1.0.0",
+    "portkey-ai>=1.9.0",
+    "openai>=1.50.0",
+    "qdrant-client>=1.12.0",
+    "temporalio>=1.7.0",
+    "airbyte-api>=0.57.0",
+    "llama-cloud>=0.1.0",
+    "llama-parse>=0.5.0",
+
+    # --- Event bus ---
+    "confluent-kafka>=2.6.0",
+
+    # --- Observability (OTel → Grafana Cloud) ---
+    "opentelemetry-api>=1.28.0",
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-exporter-otlp>=1.28.0",
+    "opentelemetry-instrumentation-fastapi>=0.49b0",
+    "opentelemetry-instrumentation-httpx>=0.49b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.49b0",
+    "opentelemetry-instrumentation-logging>=0.49b0",
+    "structlog>=24.4.0",
+
+    # --- Resilience ---
+    "tenacity>=9.0.0",
+    "circuitbreaker>=2.0.0",
+
+    # --- Entity resolution ---
+    "senzing>=4.0.0",
+
+    # --- Utilities ---
+    "orjson>=3.10.0",
+    "python-multipart>=0.0.12",
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "hypothesis>=6.112.0",
+    "ruff>=0.7.0",
+    "mypy>=1.12.0",
+    "pre-commit>=4.0.0",
+    "types-orjson>=3.6.0",
+]
+
+# --- OSS fallback dependencies (decision rule 7) ---
+oss = [
+    "splink>=4.0.0",
+    "rapidfuzz>=3.10.0",
+    "litellm>=1.50.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E", "W",       # pycodestyle
+    "F",             # pyflakes
+    "I",             # isort
+    "N",             # pep8-naming
+    "UP",            # pyupgrade
+    "S",             # bandit (security)
+    "B",             # bugbear
+    "A",             # builtins shadowing
+    "C4",            # comprehensions
+    "DTZ",           # datetime timezone
+    "T20",           # print statements
+    "RUF",           # ruff-specific
+    "ASYNC",         # async best practices
+    "PTH",           # pathlib
+]
+ignore = ["S101"]  # allow assert in tests
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "engine", "connectors", "libs", "services"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["senzing.*", "nango.*", "llama_cloud.*", "llama_parse.*", "confluent_kafka.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "gate1: Gate 1 stop-test (entity resolution precision)",
+    "gate2: Gate 2 test (belief recomputation on source revocation)",
+    "gate3: Gate 3 test (decision log completeness)",
+    "belief_purity: Belief-purity release blocker suite",
+    "er_regression: ER precision regression tracking",
+]
