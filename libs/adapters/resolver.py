@@ -1,10 +1,10 @@
 """Entity resolver adapter — abstract interface for entity resolution.
 
-Commercial: Senzing v4 SDK (embedded, against our Postgres)
-OSS fallback: RapidFuzz + Splink (scorer swappable by design)
+Primary: Splink (MIT, probabilistic record linkage) + RapidFuzz (MIT, fuzzy matching)
+Alternative: dedupe (MIT, ML-based deduplication)
 
 The Gate-1 stop-test (>=0.98 auto-merge precision on ~200 labeled pairs)
-decides the implementation EMPIRICALLY, not by preference.
+validates the implementation EMPIRICALLY. Both options are free and open source.
 """
 
 from __future__ import annotations
@@ -31,17 +31,18 @@ class ResolveResult:
     candidate: ResolveCandidate
     matched_entity_id: str | None
     confidence: float
-    explanation: str  # Senzing Why-output or Splink reasoning
+    explanation: str  # Splink match breakdown or fuzzy reasoning
     is_novel: bool
     is_conflict: bool
 
 
 @dataclass
 class WhyExplanation:
-    """Senzing Why/How output — rendered in the review queue.
+    """Match explanation — rendered in the review queue.
 
     Produces "matched on domain, differ on legal suffix" — the explanation
     the review queue requires, instead of a number we must translate.
+    Splink provides comparison vectors; we translate them to natural language.
     """
 
     match_key: str
@@ -56,7 +57,7 @@ class ResolverAdapter(ABC):
     - Support incremental resolve (record-by-record, no batch wait)
     - Produce explainable match results (for the review queue)
     - Support un-merge (record delete/re-resolve)
-    - Run against our own Postgres (data never leaves our boundary)
+    - Run in-process (data never leaves our boundary)
     """
 
     @abstractmethod

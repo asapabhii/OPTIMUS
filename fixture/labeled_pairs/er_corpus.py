@@ -1,11 +1,11 @@
 """~200 labeled ER pairs for the Gate-1 stop-test.
 
 Format: (name_a, name_b, should_match: bool)
-Includes non-person entities (SKUs, projects) since Senzing
-traditionally does person resolution — we need to verify
-it handles these too.
+Includes non-person entities (SKUs, projects) to verify
+the resolver handles diverse entity types — not just persons.
 
 Gate-1 acceptance: >=0.98 precision on this corpus.
+Resolver: Splink + RapidFuzz (MIT, zero cost).
 """
 
 from __future__ import annotations
@@ -190,6 +190,14 @@ LABELED_PAIRS: list[tuple[str, str, bool]] = [
     ("Deutsche Bank", "Deutsche Telekom", False),
     ("BMW", "BWM Inc", False),
     ("Volkswagen", "Volvo", False),
+
+    # More enterprise entity pairs for Gate-1 target
+    ("Palantir Technologies", "Palantir", True),
+    ("ServiceNow Inc.", "Service Now", True),
+    ("Atlassian Pty Ltd", "Atlassian", True),
+    ("Palantir Technologies", "Plantar Tech", False),
+    ("ServiceNow", "NowService", False),
+    ("Atlassian", "Attlasian Corp", True),
 ]
 
 # Validate corpus size

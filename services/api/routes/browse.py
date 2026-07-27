@@ -1,11 +1,4 @@
-"""Surface 2: Browse — the explorable entity graph.
-
-For any entity: every source that mentions it, every belief derived
-about it, when each was last refreshed, who can see what.
-The debugging surface where power users live.
-
-Includes direct graph manipulation (the promotion escape hatch, REQ-6.10).
-"""
+"""Browse surface (Surface 2) — entity graph, real data only."""
 
 from __future__ import annotations
 
@@ -13,75 +6,96 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from services.api.routes.ingest import get_entity_store
 
 router = APIRouter()
 
 
 class EntitySummary(BaseModel):
-    """Summary of an entity for the graph view."""
-
-    id: uuid.UUID
-    canonical_name: str
-    entity_type: str
-    source_count: int = 0
-    belief_count: int = 0
-    has_conflicts: bool = False
-    last_refreshed: str | None = None
+    entity_id: str
+    name: str
+    type: str
+    source_count: int
+    sources: list[str]
+    last_updated: str
+    properties: dict[str, Any] | None = None
 
 
-class EntityDetail(BaseModel):
-    """Full detail for a single entity — the Browse deep view."""
-
-    entity: EntitySummary
-    sources: list[dict[str, Any]] = Field(default_factory=list)
-    beliefs: list[dict[str, Any]] = Field(default_factory=list)
-    declarations: list[dict[str, Any]] = Field(default_factory=list)
-    related_entities: list[EntitySummary] = Field(default_factory=list)
-
-
-class GraphView(BaseModel):
-    """The entity graph for the Browse surface."""
-
+class EntityGraph(BaseModel):
     entities: list[EntitySummary]
-    total_count: int
-    total_sources: int
-    total_beliefs: int
-    total_conflicts: int
+    total: int
+    connected_sources: int
 
 
-@router.get("/browse/graph", response_model=GraphView)
-async def get_graph(
-    viewer_id: uuid.UUID,
+@router.get("/browse/entities", response_model=EntityGraph)
+async def list_entities(
+    viewer_id: uuid.UUID = uuid.UUID("00000000-0000-0000-0000-000000000001"),
     entity_type: str | None = None,
-    limit: int = 50,
-) -> GraphView:
-    """Get the entity graph for the Browse surface.
+    search: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> EntityGraph:
+    """List entities from ingested data — no fake data."""
+    store = get_entity_store()
 
-    TODO: Wire to store adapter with RLS filtering.
-    """
-    return GraphView(
-        entities=[],
-        total_count=0,
-        total_sources=0,
-        total_beliefs=0,
-        total_conflicts=0,
+    filtered = store
+    if entity_type:
+        filtered = [e for e in filtered if e.type == entity_type]
+    if search:
+        q = search.lower()
+        filtered = [e for e in filtered if q in e.name.lower()]
+
+    sources_set: set[str] = set()
+    entities: list[EntitySummary] = []
+
+    for record in filtered:
+        sources_set.add(record.source)
+        entities.append(EntitySummary(
+            entity_id=record.id,
+            name=record.name,
+            type=record.type,
+            source_count=1,
+            sources=[record.source],
+            last_updated=record.fetched_at,
+            properties=record.properties,
+        ))
+
+    total = len(entities)
+    paginated = entities[offset : offset + limit]
+
+    return EntityGraph(
+        entities=paginated,
+        total=total,
+        connected_sources=len(sources_set),
     )
 
 
-@router.get("/browse/entities/{entity_id}", response_model=EntityDetail)
-async def get_entity_detail(
-    entity_id: uuid.UUID,
-    viewer_id: uuid.UUID,
-) -> EntityDetail:
-    """Get full detail for an entity — sources, beliefs, freshness, declarations.
+@router.get("/browse/entities/{entity_id}")
+async def get_entity_detail(entity_id: str) -> dict:
+    """Get detail for a specific entity."""
+    store = get_entity_store()
+    matches = [e for e in store if e.id == entity_id]
 
-    TODO: Wire to store with recursive CTE for related entities.
-    """
-    return EntityDetail(
-        entity=EntitySummary(
-            id=entity_id,
-            canonical_name="[Loading]",
-            entity_type="unknown",
-        ),
-    )
+    if not matches:
+        return {"error": "Entity not found", "entity_id": entity_id}
+
+    entity = matches[0]
+    all_from_source = [e for e in store if e.name.lower() == entity.name.lower() and e.type == entity.type]
+
+    return {
+        "entity_id": entity.id,
+        "name": entity.name,
+        "type": entity.type,
+        "sources": [
+            {
+                "source": e.source,
+                "source_id": e.source_id,
+                "fetched_at": e.fetched_at,
+                "properties": e.properties,
+            }
+            for e in all_from_source
+        ],
+        "source_count": len({e.source for e in all_from_source}),
+    }

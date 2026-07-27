@@ -14,8 +14,12 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Copy dependency files
 COPY pyproject.toml ./
 
-# Install dependencies
-RUN uv sync --no-dev --no-install-project
+# Create venv and install dependencies
+RUN uv venv /app/.venv && \
+    VIRTUAL_ENV=/app/.venv uv pip install -e ".[dev]" --no-cache
+
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy application code
 COPY libs/ libs/
@@ -32,4 +36,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

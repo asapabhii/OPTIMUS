@@ -44,8 +44,9 @@ dependencies = [
     "tenacity>=9.0.0",
     "circuitbreaker>=2.0.0",
 
-    # --- Entity resolution ---
-    "senzing>=4.0.0",
+    # --- Entity resolution (OSS — Splink + RapidFuzz) ---
+    "splink>=4.0.0",
+    "rapidfuzz>=3.10.0",
 
     # --- Utilities ---
     "orjson>=3.10.0",
@@ -65,11 +66,10 @@ dev = [
     "types-orjson>=3.6.0",
 ]
 
-# --- OSS fallback dependencies (decision rule 7) ---
+# --- OSS alternative dependencies ---
 oss = [
-    "splink>=4.0.0",
-    "rapidfuzz>=3.10.0",
     "litellm>=1.50.0",
+    "dedupe>=3.0.0",
 ]
 
 [build-system]
@@ -111,7 +111,7 @@ disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["senzing.*", "nango.*", "llama_cloud.*", "llama_parse.*", "confluent_kafka.*"]
+module = ["splink.*", "nango.*", "llama_cloud.*", "llama_parse.*", "confluent_kafka.*", "rapidfuzz.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

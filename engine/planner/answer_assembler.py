@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import uuid
 
-from core.enums import SourceClass, TaskClass
-from core.models.answer import AnswerEnvelope, Claim, Citation, ConflictBlock, FreshnessInfo, PromotionPrompt
-from engine.planner.conflict_detector import detect_conflicts
+from core.enums import TaskClass
+from core.models.answer import AnswerEnvelope, ConflictBlock, PromotionPrompt
 from engine.planner.planner import FanOutResult
 from libs.adapters.llm_gateway import LLMGatewayAdapter, LLMRequest
 from libs.observability.logging import get_logger

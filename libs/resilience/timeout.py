@@ -25,7 +25,7 @@ TIMEOUT_BUDGETS_MS = {
     "belief_recompute": 3000,    # LLM call for belief recomputation
     "extraction": 30000,         # LLM structured extraction (Plane A, relaxed)
     "parsing": 60000,            # Document parsing (Plane A, relaxed)
-    "entity_resolution": 5000,   # Senzing resolve
+    "entity_resolution": 5000,   # Splink + RapidFuzz resolve
     "default": 5000,
 }
 

@@ -188,7 +188,6 @@ jobs:
       - name: ER precision test against labeled corpus
         env:
           DATABASE_URL: postgresql+asyncpg://optimus:optimus_test@localhost:5432/optimus_test
-          SENZING_LICENSE_KEY: ${{ secrets.SENZING_LICENSE_KEY }}
           APP_ENV: test
         run: uv run pytest tests/suites/er_regression/ -v --tb=long -m er_regression
 

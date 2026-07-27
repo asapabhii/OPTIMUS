@@ -15,10 +15,8 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from typing import Any
 
 from core.models.belief import Belief
-from engine.belief.anti_smuggling import validate_no_prior_access
 from libs.adapters.llm_gateway import LLMGatewayAdapter, LLMRequest
 from libs.observability.logging import get_logger
 from libs.observability.metrics import belief_recomputations
@@ -81,6 +79,7 @@ async def recompute_on_partial_loss(
     entity_id: uuid.UUID,
     surviving_evidence_ids: list[uuid.UUID],
     surviving_evidence_texts: list[str],
+    original_evidence_count: int,
     viewer_id: uuid.UUID,
     llm: LLMGatewayAdapter,
 ) -> Belief | None:
@@ -90,6 +89,10 @@ async def recompute_on_partial_loss(
     - Recompute from the REMAINING visible evidence
     - Present with REDUCED confidence and updated provenance
     - NEVER reuse the prior conclusion as an input
+
+    Args:
+        original_evidence_count: How many evidence items existed BEFORE the loss.
+            Must be passed in — we cannot infer how many were lost.
 
     Returns None if zero evidence remains (evaporation).
     """
@@ -107,7 +110,7 @@ async def recompute_on_partial_loss(
     belief.recomputed_from_partial = True
     belief.confidence = apply_degradation_factor(
         base_confidence=belief.confidence,
-        original_evidence_count=len(surviving_evidence_ids) + 1,  # +1 for the lost one
+        original_evidence_count=original_evidence_count,
         surviving_evidence_count=len(surviving_evidence_ids),
     )
 

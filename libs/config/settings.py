@@ -24,26 +24,45 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     app_log_level: str = "INFO"
-    cors_origins: list[str] = Field(default=["http://localhost:5173"])
+    cors_origins: list[str] = Field(default=["http://localhost:5173", "http://localhost:5174"])
 
     # --- Primary Store: Neon (managed Postgres 16) ---
-    database_url: str = Field(description="Async connection string (asyncpg)")
-    database_url_sync: str = Field(default="", description="Sync connection string (for Alembic)")
+    database_url: str = Field(
+        default="postgresql+asyncpg://optimus:optimus_dev@localhost:5432/optimus",
+        description="Async connection string (asyncpg)",
+    )
+    database_url_sync: str = Field(
+        default="postgresql://optimus:optimus_dev@localhost:5432/optimus",
+        description="Sync connection string (for Alembic)",
+    )
 
     # --- Nango Cloud ---
-    nango_secret_key: SecretStr = Field(description="Nango API secret key")
+    nango_secret_key: SecretStr = Field(
+        default=SecretStr(""), description="Nango API secret key"
+    )
     nango_public_key: str = Field(default="", description="Nango public key for frontend")
     nango_base_url: str = "https://api.nango.dev"
 
     # --- Portkey (LLM Gateway) ---
-    portkey_api_key: SecretStr = Field(description="Portkey API key")
+    portkey_api_key: SecretStr = Field(
+        default=SecretStr(""), description="Portkey API key"
+    )
     portkey_base_url: str = "https://api.portkey.ai/v1"
 
     # --- OpenAI (routed through Portkey) ---
-    openai_api_key: SecretStr = Field(description="OpenAI API key")
+    openai_api_key: SecretStr = Field(
+        default=SecretStr(""), description="OpenAI API key"
+    )
 
-    # --- Senzing ---
-    senzing_license_key: str = Field(default="", description="Senzing evaluation license")
+    # --- Entity Resolution (Splink + RapidFuzz — no license needed) ---
+    er_auto_merge_threshold: float = Field(
+        default=0.85,
+        description="Confidence threshold for auto-merge (Gate-1 tuned)",
+    )
+    er_conflict_threshold: float = Field(
+        default=0.50,
+        description="Below auto-merge but above this → surfaced as conflict",
+    )
 
     # --- Grafana Cloud (OTel) ---
     grafana_otlp_endpoint: str = Field(
@@ -80,6 +99,9 @@ class Settings(BaseSettings):
     # --- Google OAuth (for Nango-managed connectors) ---
     google_client_id: str = Field(default="")
     google_client_secret: SecretStr = Field(default=SecretStr(""))
+
+    # --- HubSpot (Private App) ---
+    hubspot_access_token: SecretStr = Field(default=SecretStr(""), description="HubSpot Private App access token")
 
     # --- Onboarding: fast-path ingestion ---
     fast_path_default_n: int = Field(

@@ -18,7 +18,7 @@ from libs.observability.logging import setup_logging, get_logger
 from libs.observability.metrics import setup_metrics
 from libs.observability.middleware import RequestTracingMiddleware
 from libs.observability.tracing import setup_tracing
-from services.api.routes import ask, browse, connectors, declarations, decisions, health, onboarding
+from services.api.routes import ask, auth, browse, canon, connectors, declarations, decisions, health, ingest, memory, onboarding
 
 logger = get_logger("api")
 
@@ -69,14 +69,18 @@ def create_app() -> FastAPI:
         expose_headers=["X-Request-ID", "X-Response-Time-Ms"],
     )
 
-    # Routes — the four surfaces + supporting endpoints
+    # Routes — auth (public) + the four surfaces + supporting endpoints
     app.include_router(health.router, tags=["Health"])
+    app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
     app.include_router(ask.router, prefix="/api/v1", tags=["Ask (Surface 1)"])
     app.include_router(browse.router, prefix="/api/v1", tags=["Browse (Surface 2)"])
     app.include_router(decisions.router, prefix="/api/v1", tags=["Decisions (Surface 4)"])
     app.include_router(onboarding.router, prefix="/api/v1", tags=["Onboarding (J1)"])
     app.include_router(connectors.router, prefix="/api/v1", tags=["Connectors"])
+    app.include_router(ingest.router, prefix="/api/v1", tags=["Ingestion"])
     app.include_router(declarations.router, prefix="/api/v1", tags=["Declarations"])
+    app.include_router(canon.router, prefix="/api/v1", tags=["Canon (Company Layer)"])
+    app.include_router(memory.router, prefix="/api/v1", tags=["Memory"])
 
     return app
 

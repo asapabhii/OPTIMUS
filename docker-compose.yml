@@ -63,8 +63,14 @@ services:
     ports:
       - "7233:7233"
     environment:
-      - DB=sqlite
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=optimus
+      - POSTGRES_PWD=optimus_dev
+      - POSTGRES_SEEDS=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
       interval: 10s
@@ -91,7 +97,9 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     ports:
       - "8000:8000"
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DATABASE_URL=postgresql+asyncpg://optimus:optimus_dev@postgres:5432/optimus
       - DATABASE_URL_SYNC=postgresql://optimus:optimus_dev@postgres:5432/optimus
@@ -117,7 +125,9 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.plane-a
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DATABASE_URL=postgresql+asyncpg://optimus:optimus_dev@postgres:5432/optimus
       - DATABASE_URL_SYNC=postgresql://optimus:optimus_dev@postgres:5432/optimus
@@ -138,7 +148,9 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.invalidation
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DATABASE_URL=postgresql+asyncpg://optimus:optimus_dev@postgres:5432/optimus
       - REDPANDA_BROKERS=redpanda:9092

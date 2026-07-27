@@ -34,7 +34,7 @@ class AutoDecision(BaseModel):
     )
     explanation: str = Field(
         default="",
-        description="Human-readable explanation. For ER: Senzing Why-output. "
+        description="Human-readable explanation. For ER: Splink match breakdown. "
         "For freshness: inference ladder reasoning.",
     )
     confidence: float = Field(

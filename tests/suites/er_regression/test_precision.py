@@ -1,7 +1,7 @@
 """ER regression suite — tracks entity resolution precision over time.
 
 Gate-1 stop-test: >=0.98 auto-merge precision on the labeled corpus.
-This decides Senzing vs. Splink empirically, not by preference.
+Uses Splink + RapidFuzz (MIT, zero licensing cost).
 """
 
 from __future__ import annotations
@@ -33,9 +33,7 @@ class TestERPrecision:
         )
 
     def test_corpus_includes_non_person_entities(self) -> None:
-        """Senzing traditionally does person resolution.
-        We need to verify it handles SKUs, companies, projects too.
-        """
+        """Verify the resolver handles SKUs, companies, and projects — not just persons."""
         non_person_indicators = ["Assembly", "SKU", "IND-", "Monitor", "Printer", "Server", "Mouse", "Hub", "Keyboard"]
         has_non_person = any(
             any(ind in a or ind in b for ind in non_person_indicators)
@@ -43,22 +41,50 @@ class TestERPrecision:
         )
         assert has_non_person, "Corpus must include non-person entities (SKUs, products)"
 
-    @pytest.mark.skip(reason="Requires Senzing SDK — run after Gate-1 spike")
-    def test_precision_above_threshold(self) -> None:
+    @pytest.mark.asyncio
+    async def test_precision_above_threshold(self) -> None:
         """Gate-1 stop-test: auto-merge precision >=0.98.
 
-        TODO: Wire to ResolverAdapter implementation.
-        Run each labeled pair through the resolver and measure precision.
+        Runs the full labeled corpus through SplinkRapidFuzzResolver.
         """
-        # true_positives = 0
-        # false_positives = 0
-        # for name_a, name_b, should_match in LABELED_PAIRS:
-        #     result = await resolver.resolve(...)
-        #     predicted_match = result.confidence >= THRESHOLD
-        #     if predicted_match and should_match:
-        #         true_positives += 1
-        #     elif predicted_match and not should_match:
-        #         false_positives += 1
-        # precision = true_positives / (true_positives + false_positives)
-        # assert precision >= 0.98
-        pass
+        from libs.adapters.impl.splink_resolver import SplinkRapidFuzzResolver
+        from libs.adapters.resolver import ResolveCandidate
+
+        resolver = SplinkRapidFuzzResolver()
+        true_positives = 0
+        false_positives = 0
+
+        for name_a, name_b, should_match in LABELED_PAIRS:
+            candidate_a = ResolveCandidate(
+                source_id="test", source_ref=f"ref-{name_a}",
+                entity_type="company", name=name_a, attributes={},
+            )
+            resolver._register_entity(f"ent-{name_a}", candidate_a)
+
+            candidate_b = ResolveCandidate(
+                source_id="test", source_ref=f"ref-{name_b}",
+                entity_type="company", name=name_b, attributes={},
+            )
+            result = await resolver.resolve(candidate_b)
+            predicted_match = (
+                result.matched_entity_id is not None
+                and not result.is_conflict
+            )
+
+            if predicted_match and should_match:
+                true_positives += 1
+            elif predicted_match and not should_match:
+                false_positives += 1
+
+            resolver._entities.clear()
+            resolver._records.clear()
+
+        precision = (
+            true_positives / (true_positives + false_positives)
+            if (true_positives + false_positives) > 0 else 0.0
+        )
+        assert precision >= 0.98, (
+            f"Gate-1 precision {precision:.4f} < 0.98. "
+            f"TP={true_positives}, FP={false_positives}. "
+            f"Review false positives and tune thresholds."
+        )

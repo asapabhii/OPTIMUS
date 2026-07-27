@@ -4,7 +4,7 @@ Novel entities are created immediately.
 Confident matches are auto-merged, logged, and reversible.
 Conflicts are surfaced in the review queue without blocking ingestion.
 
-Un-merge is implemented via merged_into + Senzing record delete/re-resolve.
+Un-merge is implemented via merged_into + resolver record delete/re-resolve.
 """
 
 from __future__ import annotations
@@ -119,7 +119,7 @@ async def unmerge(
 ) -> list[uuid.UUID]:
     """Un-merge: reverse a merge by deleting the record and re-resolving.
 
-    Sets merged_into=NULL on the entity and triggers Senzing re-resolve
+    Sets merged_into=NULL on the entity and triggers resolver re-resolve
     on all affected entities (REQ-11.2b).
 
     TODO: Wire to ResolverAdapter.unmerge + store adapter.

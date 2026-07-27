@@ -1,6 +1,6 @@
 """Per-vendor circuit breakers.
 
-Every external call (Nango, Portkey, Senzing, Qdrant, etc.) goes through
+Every external call (Nango, Portkey, Qdrant, etc.) goes through
 a circuit breaker. When a vendor is down, we fail fast rather than
 accumulating timeouts.
 """

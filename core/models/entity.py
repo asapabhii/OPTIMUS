@@ -29,7 +29,7 @@ class Entity(BaseModel):
     merged_into: uuid.UUID | None = Field(
         default=None,
         description="If set, this entity was merged into another. "
-        "Used for un-merge via Senzing record delete/re-resolve.",
+        "Un-merge triggers resolver record delete/re-resolve.",
     )
     viewer_id: uuid.UUID = Field(description="Owner viewer — RLS partition key")
     created_at: datetime = Field(default_factory=datetime.utcnow)

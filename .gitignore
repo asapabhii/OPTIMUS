@@ -43,3 +43,9 @@ htmlcov/
 *.pem
 *.key
 secrets/
+
+# Runtime data (persisted entity store, proposals, etc.)
+data/
+
+# Temp files
+tmp_*.json

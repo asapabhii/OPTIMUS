@@ -25,9 +25,9 @@ class TestGate1:
         """3 CRM name variants for Meridian Supply → 1 entity."""
         pass
 
-    @pytest.mark.skip(reason="Requires Senzing SDK")
+    @pytest.mark.skip(reason="Requires full infrastructure — run in integration environment")
     def test_er_precision_threshold(self) -> None:
-        """>=0.98 auto-merge precision on labeled corpus."""
+        """>=0.98 auto-merge precision on labeled corpus (Splink + RapidFuzz)."""
         pass
 
 
