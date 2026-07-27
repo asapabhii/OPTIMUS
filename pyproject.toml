@@ -48,6 +48,9 @@ dependencies = [
     "splink>=4.0.0",
     "rapidfuzz>=3.10.0",
 
+    # --- Auth ---
+    "PyJWT>=2.9.0",
+
     # --- Utilities ---
     "orjson>=3.10.0",
     "python-multipart>=0.0.12",
