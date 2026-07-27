@@ -18,7 +18,7 @@ dependencies = [
     "httpx>=0.27.0",
 
     # --- Adapters: managed vendors (commercial edition) ---
-    "nango>=1.0.0",
+    "nango>=0.1.0",
     "portkey-ai>=1.9.0",
     "openai>=1.50.0",
     "qdrant-client>=1.12.0",
