@@ -435,6 +435,71 @@ function EntityDetailPanel({
   );
 }
 
+function getSubtitle(entity: EntitySummary): string {
+  const p = entity.properties || {};
+  const src = entity.sources[0] || "";
+
+  switch (entity.type) {
+    case "company": {
+      const parts: string[] = [];
+      if (p.domain) parts.push(p.domain);
+      if (p.industry) parts.push(p.industry);
+      if (p.contact_count) parts.push(`${p.contact_count} contacts`);
+      return parts.length > 0 ? parts.join(" · ") : `Company · ${src}`;
+    }
+    case "deal": {
+      const parts: string[] = [];
+      if (p.amount) parts.push(`$${Number(p.amount).toLocaleString()}`);
+      if (p.stage) parts.push(p.stage);
+      if (p.pipeline) parts.push(p.pipeline);
+      return parts.length > 0 ? parts.join(" · ") : `Deal · ${src}`;
+    }
+    case "person": {
+      const parts: string[] = [];
+      if (p.email) parts.push(p.email);
+      if (p.company) parts.push(p.company);
+      if (p.job_title) parts.push(p.job_title);
+      return parts.length > 0 ? parts.join(" · ") : `Contact · ${src}`;
+    }
+    case "email": {
+      const parts: string[] = [];
+      if (p.from) parts.push(`From: ${p.from.split("<")[0].trim()}`);
+      if (p.date) parts.push(p.date.slice(0, 10));
+      return parts.length > 0 ? parts.join(" · ") : `Email · ${src}`;
+    }
+    case "channel": {
+      if (p.purpose) return p.purpose.slice(0, 100);
+      if (p.subtitle) return p.subtitle;
+      if (p.message_count) return `${p.message_count} recent messages`;
+      return `Channel · ${src}`;
+    }
+    case "message": {
+      if (p.content) return p.content.slice(0, 100);
+      return `Message in #${p.channel || "unknown"} · ${src}`;
+    }
+    case "event": {
+      const parts: string[] = [];
+      if (p.start) parts.push(p.start.slice(0, 16).replace("T", " "));
+      if (p.attendees) parts.push(`${p.attendees} attendees`);
+      if (p.status) parts.push(p.status);
+      return parts.length > 0 ? parts.join(" · ") : `Event · ${src}`;
+    }
+    case "document": {
+      if (p.content) return p.content.slice(0, 100);
+      if (p.owner) return `by ${p.owner} · ${src}`;
+      return `Document · ${src}`;
+    }
+    case "spreadsheet": {
+      const parts: string[] = [];
+      if (p.owner) parts.push(`by ${p.owner}`);
+      if (p.modified) parts.push(p.modified.slice(0, 10));
+      return parts.length > 0 ? parts.join(" · ") : `Spreadsheet · ${src}`;
+    }
+    default:
+      return `${entity.type} · ${src}`;
+  }
+}
+
 export function BrowseSurface() {
   const [data, setData] = useState<EntityGraph | null>(null);
   const [loading, setLoading] = useState(true);
@@ -600,10 +665,8 @@ export function BrowseSurface() {
                   <div className="font-medium text-sm truncate">
                     {entity.name}
                   </div>
-                  <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                    <span className="capitalize">{entity.type}</span>
-                    <span className="opacity-30">·</span>
-                    <span>{entity.sources.join(", ")}</span>
+                  <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                    {getSubtitle(entity)}
                   </div>
                 </div>
                 <ChevronRight

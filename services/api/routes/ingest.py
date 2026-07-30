@@ -848,22 +848,7 @@ async def _ingest_slack(
             ch_id = ch.get("id", "")
             ch_name = ch.get("name", "")
 
-            entities.append(EntityRecord(
-                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:channel:{ch_id}")),
-                type="channel",
-                name=f"#{ch_name}",
-                source="slack",
-                source_id=ch_id,
-                properties={
-                    "topic": ch.get("topic", {}).get("value", ""),
-                    "purpose": ch.get("purpose", {}).get("value", ""),
-                    "members": ch.get("num_members", 0),
-                },
-                fetched_at=datetime.utcnow().isoformat(),
-                connection_id=connection_id,
-            ))
-
-            # Fetch recent messages from each channel
+            # Fetch recent messages FIRST so we can attach previews to channel entity
             msgs_data = None
             if bot_token:
                 try:
@@ -882,12 +867,16 @@ async def _ingest_slack(
                 msgs_data = await _nango_proxy_get(secret, connection_id, "slack", "conversations.history", {
                     "channel": ch_id, "limit": "10",
                 })
+
+            # Collect message previews for the channel
+            msg_previews: list[str] = []
             if msgs_data and msgs_data.get("ok"):
                 for msg in (msgs_data.get("messages") or []):
                     if msg.get("subtype"):
                         continue
                     text = msg.get("text", "")[:500]
                     if text:
+                        msg_previews.append(text)
                         entities.append(EntityRecord(
                             id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:msg:{ch_id}:{msg.get('ts', '')}")),
                             type="message",
@@ -903,6 +892,34 @@ async def _ingest_slack(
                             fetched_at=datetime.utcnow().isoformat(),
                             connection_id=connection_id,
                         ))
+
+            # Now create the channel entity with message previews
+            purpose = ch.get("purpose", {}).get("value", "")
+            topic = ch.get("topic", {}).get("value", "")
+            ch_props: dict[str, Any] = {
+                "purpose": purpose,
+                "topic": topic,
+                "members": ch.get("num_members", 0),
+            }
+            if msg_previews:
+                ch_props["recent_messages"] = " | ".join(msg_previews[:5])
+                ch_props["message_count"] = len(msg_previews)
+
+            subtitle = purpose or topic or (
+                f"{len(msg_previews)} recent messages" if msg_previews else ""
+            )
+            ch_props["subtitle"] = subtitle
+
+            entities.append(EntityRecord(
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:channel:{ch_id}")),
+                type="channel",
+                name=f"#{ch_name}",
+                source="slack",
+                source_id=ch_id,
+                properties=ch_props,
+                fetched_at=datetime.utcnow().isoformat(),
+                connection_id=connection_id,
+            ))
     else:
         errors.append("No channels returned from Slack")
 

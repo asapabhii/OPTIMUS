@@ -81,19 +81,38 @@ async def list_entities(
         cleaned.append(e)
     filtered = cleaned
 
+    # Deduplicate by (name, type, source) — merge properties
+    seen: dict[tuple[str, str, str], dict] = {}
+    for record in filtered:
+        key = (record.name.lower().strip(), record.type, record.source)
+        if key in seen:
+            existing = seen[key]
+            for k, v in record.properties.items():
+                if v and (k not in existing["props"] or not existing["props"][k]):
+                    existing["props"][k] = v
+        else:
+            seen[key] = {
+                "id": record.id,
+                "name": record.name,
+                "type": record.type,
+                "source": record.source,
+                "fetched_at": record.fetched_at,
+                "props": {**record.properties},
+            }
+
     sources_set: set[str] = set()
     entities: list[EntitySummary] = []
 
-    for record in filtered:
-        sources_set.add(record.source)
+    for item in seen.values():
+        sources_set.add(item["source"])
         entities.append(EntitySummary(
-            entity_id=record.id,
-            name=record.name,
-            type=record.type,
+            entity_id=item["id"],
+            name=item["name"],
+            type=item["type"],
             source_count=1,
-            sources=[record.source],
-            last_updated=record.fetched_at,
-            properties=record.properties,
+            sources=[item["source"]],
+            last_updated=item["fetched_at"],
+            properties=item["props"],
         ))
 
     # Sort by type priority, then alphabetically
