@@ -444,6 +444,10 @@ export function AskSurface() {
         /`(.*?)`/g,
         '<code class="px-1.5 py-0.5 rounded bg-white/5 text-[#a5b4fc] text-xs font-mono">$1</code>'
       )
+      .replace(
+        /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline inline-flex items-center gap-1">$1 <svg class="w-3 h-3 inline shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg></a>'
+      )
       .replace(/^#{4,}\s+(.*$)/gm, '<div class="text-sm font-semibold mt-3 mb-1">$1</div>')
       .replace(/^###\s+(.*$)/gm, '<div class="text-sm font-semibold mt-3 mb-1">$1</div>')
       .replace(/^##\s+(.*$)/gm, '<div class="text-base font-bold mt-4 mb-1.5">$1</div>')

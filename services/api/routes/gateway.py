@@ -191,15 +191,80 @@ async def slack_events(request: Request) -> Response:
     event = payload.get("event", {})
     event_type = event.get("type", "")
 
-    # Handle both DMs (message) and @mentions (app_mention)
+    logger.info("slack_event_received", event_type=event_type, has_bot_id=bool(event.get("bot_id")))
+
+    # Handle regular DMs and @mentions
     is_user_message = event_type == "message" and not event.get("bot_id") and not event.get("subtype")
     is_mention = event_type == "app_mention"
+
+    # Handle Slack Agent/Assistant protocol
+    is_assistant_thread = event_type == "assistant_thread_started"
 
     if is_user_message or is_mention:
         import asyncio
         asyncio.create_task(_process_slack_event(event))
+    elif is_assistant_thread:
+        import asyncio
+        asyncio.create_task(_process_assistant_thread(event))
 
     return Response(content="OK", status_code=200)
+
+
+async def _process_assistant_thread(event: dict):
+    """Handle Slack Assistant thread — set status, process, respond."""
+    try:
+        config = _get_slack_config()
+        channel = event.get("assistant_thread", {}).get("channel_id", "")
+        thread_ts = event.get("assistant_thread", {}).get("thread_ts", "")
+        context = event.get("assistant_thread", {}).get("context", {})
+
+        if not channel or not thread_ts:
+            logger.warning("assistant_thread_missing_data", event=event)
+            return
+
+        # Set typing indicator
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                "https://slack.com/api/assistant.threads.setStatus",
+                headers={"Authorization": f"Bearer {config.bot_token}", "Content-Type": "application/json"},
+                json={"channel_id": channel, "thread_ts": thread_ts, "status": "Thinking..."},
+                timeout=5.0,
+            )
+
+        # Get the user's message from the thread
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://slack.com/api/conversations.replies",
+                headers={"Authorization": f"Bearer {config.bot_token}"},
+                params={"channel": channel, "ts": thread_ts, "limit": "5"},
+                timeout=10.0,
+            )
+            user_text = ""
+            if resp.status_code == 200:
+                data = resp.json()
+                for msg in data.get("messages", []):
+                    if not msg.get("bot_id") and msg.get("text"):
+                        user_text = msg["text"]
+                        break
+
+        if not user_text:
+            user_text = "Hello"
+
+        # Generate response
+        from services.api.routes.work import _run_agent
+        result, _steps = await _run_agent(user_text)
+
+        # Send reply in the assistant thread
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                "https://slack.com/api/chat.postMessage",
+                headers={"Authorization": f"Bearer {config.bot_token}", "Content-Type": "application/json"},
+                json={"channel": channel, "thread_ts": thread_ts, "text": result or "I couldn't process that request."},
+                timeout=15.0,
+            )
+
+    except Exception as e:
+        logger.error("assistant_thread_failed", error=str(e))
 
 
 async def _process_slack_event(event: dict):
