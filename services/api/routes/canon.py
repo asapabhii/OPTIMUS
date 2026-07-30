@@ -76,6 +76,7 @@ class Assertion(BaseModel):
     citation: str = ""  # evidence or reference
     status: AssertionStatus = AssertionStatus.ACTIVE
     audience: list[str] = Field(default_factory=lambda: ["all"])
+    company_domain: str = ""  # scopes assertion to a company pipeline
     stake_level: StakeLevel = StakeLevel.MEDIUM
     # Bitemporal
     valid_from: str = ""
@@ -84,6 +85,11 @@ class Assertion(BaseModel):
     updated_at: str = ""
     superseded_by: str = ""  # id of the assertion that replaced this
     metadata: dict[str, Any] = {}
+    # F-P3: Canon visibility extensions
+    ttl_days: int = 0  # 0 = never expires, N = auto-revoke after N days
+    promotion_path: str = ""  # "direct" or "proposal" — how it entered canon
+    visibility: str = "org"  # "org" (all org), "team" (specific teams), "private"
+    tags: list[str] = Field(default_factory=list)  # classification tags
 
 
 class Proposal(BaseModel):
@@ -110,6 +116,7 @@ class Proposal(BaseModel):
     review_note: str = ""
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     audience: list[str] = Field(default_factory=lambda: ["all"])
+    company_domain: str = ""  # scopes proposal to a company pipeline
 
 
 class SoRDeclaration(BaseModel):
@@ -176,9 +183,21 @@ async def get_canon_overview(
     entity_type: str = "",
     search: str = "",
     status: str = "",
+    company_domain: str = "",
 ) -> CanonOverview:
-    """Get the full canon — all company knowledge."""
+    """Get canon — filtered by company domain if provided.
+
+    When a user belongs to a company (detected from work email), they see:
+    - Assertions scoped to their domain
+    - Assertions with no domain (global)
+    """
     filtered = _assertions
+
+    if company_domain:
+        filtered = [
+            a for a in filtered
+            if not a.company_domain or a.company_domain == company_domain
+        ]
 
     if entity_type:
         filtered = [a for a in filtered if a.entity_type == entity_type]
@@ -195,6 +214,11 @@ async def get_canon_overview(
 
     active = [a for a in _assertions if a.status == AssertionStatus.ACTIVE]
     pending = [p for p in _proposals if p.status == ProposalStatus.PENDING]
+    if company_domain:
+        pending = [
+            p for p in pending
+            if not p.company_domain or p.company_domain == company_domain
+        ]
 
     return CanonOverview(
         assertions=filtered,

@@ -18,7 +18,11 @@ from libs.observability.logging import setup_logging, get_logger
 from libs.observability.metrics import setup_metrics
 from libs.observability.middleware import RequestTracingMiddleware
 from libs.observability.tracing import setup_tracing
-from services.api.routes import ask, auth, browse, canon, connectors, declarations, decisions, health, ingest, memory, onboarding
+from services.api.routes import (
+    ask, auth, browse, canon, connectors, declarations, decisions,
+    gateway, health, ingest, longhorizon, memory, onboarding,
+    permissions, processes, work, writeback,
+)
 
 logger = get_logger("api")
 
@@ -81,6 +85,16 @@ def create_app() -> FastAPI:
     app.include_router(declarations.router, prefix="/api/v1", tags=["Declarations"])
     app.include_router(canon.router, prefix="/api/v1", tags=["Canon (Company Layer)"])
     app.include_router(memory.router, prefix="/api/v1", tags=["Memory"])
+
+    # Block 3 — Work Layer
+    app.include_router(work.router, prefix="/api/v1", tags=["Work Layer (Block 3)"])
+
+    # Block 4 — Remaining Phases
+    app.include_router(permissions.router, prefix="/api/v1", tags=["Permissions (F-P2)"])
+    app.include_router(gateway.router, prefix="/api/v1", tags=["Gateway (W-P2)"])
+    app.include_router(processes.router, prefix="/api/v1", tags=["Processes (W-P3)"])
+    app.include_router(writeback.router, prefix="/api/v1", tags=["Write-back (F-P4)"])
+    app.include_router(longhorizon.router, prefix="/api/v1", tags=["Long-horizon Jobs (W-P4)"])
 
     return app
 

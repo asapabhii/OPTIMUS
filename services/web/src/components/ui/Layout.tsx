@@ -5,8 +5,10 @@ import {
   ListChecks,
   Shield,
   Cable,
+  Wrench,
   Plus,
   LogOut,
+  Settings,
 } from "lucide-react";
 import { logout, getUsername } from "../../api/client";
 
@@ -40,6 +42,18 @@ const navItems = [
     label: "Sources",
     icon: Cable,
     description: "Manage connections",
+  },
+  {
+    to: "/work",
+    label: "Work",
+    icon: Wrench,
+    description: "Agent and delegation",
+  },
+  {
+    to: "/admin",
+    label: "Admin",
+    icon: Shield,
+    description: "Governance and config",
   },
 ];
 
@@ -114,6 +128,13 @@ export function Layout() {
               </span>
             </div>
           </div>
+          <button
+            onClick={() => navigate("/settings")}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-all text-left"
+          >
+            <Settings className="h-4 w-4" />
+            Account settings
+          </button>
           <button
             onClick={() => logout()}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all text-left"

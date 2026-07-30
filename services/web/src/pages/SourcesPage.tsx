@@ -382,7 +382,7 @@ export function SourcesPage() {
                       Connected
                     </span>
                     <span className="opacity-40">|</span>
-                    <span>{timeAgo(src.created_at)}</span>
+                    <span>{lastSync ? timeAgo(new Date(lastSync).toISOString()) : timeAgo(src.created_at)}</span>
                     <span className="opacity-40">|</span>
                     <span className="font-mono text-[10px] opacity-40">
                       {src.connection_id.slice(0, 8)}

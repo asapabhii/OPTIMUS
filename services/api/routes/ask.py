@@ -187,18 +187,27 @@ def _build_data_analytics(store: list[EntityRecord]) -> str:
                 + (f" (labels: {labels})" if labels else "")
             )
 
-        # Top senders
+        # Top senders — filter out system/notification senders
+        JUNK_SENDERS = {
+            "noreply", "no-reply", "notification", "mailer-daemon",
+            "calendar-notification", "drive-shares-dm-noreply",
+        }
+
+        def _is_junk_sender(addr: str) -> bool:
+            addr_lower = addr.lower()
+            return any(j in addr_lower for j in JUNK_SENDERS) or not addr.strip()
+
         sender_counts: Counter[str] = Counter()
         recipient_counts: Counter[str] = Counter()
         for e in emails:
-            from_addr = e.properties.get("from", "")
+            from_addr = e.properties.get("from", "").strip()
             to_addr = e.properties.get("to", "")
-            if from_addr:
+            if from_addr and not _is_junk_sender(from_addr):
                 sender_counts[from_addr] += 1
             if to_addr:
                 for addr in to_addr.split(","):
                     addr = addr.strip()
-                    if addr:
+                    if addr and not _is_junk_sender(addr):
                         recipient_counts[addr] += 1
 
         lines.append("  Top senders (by email count):")
@@ -399,26 +408,86 @@ async def ask_with_files(
     for f in files:
         content = await f.read()
         mime = f.content_type or ""
+        fname = f.filename or "file"
 
         if mime.startswith("image/"):
             b64 = base64.b64encode(content).decode("utf-8")
             file_contents.append({
-                "name": f.filename or "image",
+                "name": fname,
                 "type": "image",
                 "content": f"data:{mime};base64,{b64}",
                 "mime": mime,
             })
         else:
-            try:
-                text = content.decode("utf-8", errors="replace")
-            except Exception:
-                text = content.decode("latin-1", errors="replace")
+            text = ""
 
-            if len(text) > 10000:
-                text = text[:10000] + "\n... [truncated]"
+            # PDF extraction
+            if mime == "application/pdf" or fname.lower().endswith(".pdf"):
+                try:
+                    import io
+                    from PyPDF2 import PdfReader
+                    reader = PdfReader(io.BytesIO(content))
+                    pages = []
+                    for i, page in enumerate(reader.pages):
+                        page_text = page.extract_text() or ""
+                        if page_text.strip():
+                            pages.append(f"[Page {i+1}]\n{page_text}")
+                    text = "\n\n".join(pages)
+                    logger.info("pdf_extracted", filename=fname, pages=len(reader.pages), chars=len(text))
+                except Exception as e:
+                    logger.warning("pdf_extraction_failed", filename=fname, error=str(e))
+                    text = f"[Could not extract text from PDF: {fname}]"
+
+            # DOCX extraction
+            elif fname.lower().endswith(".docx") or mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                try:
+                    import io
+                    from docx import Document as DocxDocument
+                    doc = DocxDocument(io.BytesIO(content))
+                    text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+                    logger.info("docx_extracted", filename=fname, chars=len(text))
+                except Exception as e:
+                    logger.warning("docx_extraction_failed", filename=fname, error=str(e))
+                    text = f"[Could not extract text from DOCX: {fname}]"
+
+            # Excel (.xlsx) extraction
+            elif fname.lower().endswith(".xlsx") or mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+                try:
+                    import io
+                    from openpyxl import load_workbook
+                    wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+                    sheets_text = []
+                    for sheet_name in wb.sheetnames:
+                        ws = wb[sheet_name]
+                        rows = []
+                        for row in ws.iter_rows(values_only=True):
+                            cells = [str(c) if c is not None else "" for c in row]
+                            if any(cells):
+                                rows.append(" | ".join(cells))
+                        if rows:
+                            sheets_text.append(f"[Sheet: {sheet_name}]\n" + "\n".join(rows))
+                    text = "\n\n".join(sheets_text)
+                    wb.close()
+                    logger.info("xlsx_extracted", filename=fname, sheets=len(wb.sheetnames), chars=len(text))
+                except Exception as e:
+                    logger.warning("xlsx_extraction_failed", filename=fname, error=str(e))
+                    text = f"[Could not extract data from Excel file: {fname}]"
+
+            # Plain text / CSV / other text formats
+            else:
+                try:
+                    text = content.decode("utf-8", errors="replace")
+                except Exception:
+                    text = content.decode("latin-1", errors="replace")
+
+            if not text.strip():
+                text = f"[No readable text extracted from {fname}]"
+
+            if len(text) > 15000:
+                text = text[:15000] + "\n... [truncated]"
 
             file_contents.append({
-                "name": f.filename or "file",
+                "name": fname,
                 "type": "document",
                 "content": text,
                 "mime": mime,
@@ -607,11 +676,25 @@ async def ask_question(request: AskRequest) -> AnswerEnvelope:
         logger.error("ask_llm_error", error=str(e))
         answer_text = f"Error generating answer: {str(e)}"
 
-    # Build citations from entities actually mentioned in the answer
+    # Build citations
     cited: list[Citation] = []
+
+    # If files were uploaded, cite the uploaded files first
+    if request.file_contents:
+        for fc in request.file_contents:
+            cited.append(
+                Citation(
+                    source="uploaded-file",
+                    entity_name=fc.get("name", "Uploaded file"),
+                    entity_type="document" if fc.get("type") == "document" else "image",
+                    snippet=f"Uploaded by user",
+                )
+            )
+
+    # Then cite entities actually mentioned in the answer
     answer_lower = answer_text.lower()
     for ent in relevant_entities:
-        if ent["name"].lower() in answer_lower or len(relevant_entities) <= 5:
+        if ent["name"].lower() in answer_lower:
             cited.append(
                 Citation(
                     source=ent["source"],
@@ -620,22 +703,10 @@ async def ask_question(request: AskRequest) -> AnswerEnvelope:
                     snippet=f"From {ent['source']}",
                 )
             )
-            if len(cited) >= 5:
+            if len(cited) >= 8:
                 break
 
-    # Fallback: top relevant entities
-    if not cited:
-        cited = [
-            Citation(
-                source=ent["source"],
-                entity_name=ent["name"],
-                entity_type=ent["type"],
-                snippet=f"From {ent['source']}",
-            )
-            for ent in relevant_entities[:5]
-        ]
-
-    # If still no citations but we have data, cite data sources
+    # If no file citations and no entity matches, cite data sources
     if not cited and store:
         source_set = {e.source for e in store}
         cited = [

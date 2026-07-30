@@ -103,6 +103,27 @@ class Settings(BaseSettings):
     # --- HubSpot (Private App) ---
     hubspot_access_token: SecretStr = Field(default=SecretStr(""), description="HubSpot Private App access token")
 
+    # --- AuthZed (SpiceDB) ---
+    authzed_endpoint: str = Field(default="", description="AuthZed/SpiceDB gRPC endpoint")
+    authzed_token: SecretStr = Field(default=SecretStr(""), description="AuthZed API token")
+
+    # --- Slack Gateway ---
+    slack_bot_token: SecretStr = Field(default=SecretStr(""), description="Slack bot OAuth token")
+    slack_signing_secret: SecretStr = Field(default=SecretStr(""), description="Slack app signing secret")
+
+    # --- Email Gateway (SMTP) ---
+    smtp_host: str = Field(default="", description="SMTP server host")
+    smtp_port: int = Field(default=587, description="SMTP server port")
+    smtp_user: str = Field(default="", description="SMTP username")
+    smtp_password: SecretStr = Field(default=SecretStr(""), description="SMTP password")
+    imap_host: str = Field(default="", description="IMAP server host for inbound email")
+
+    # --- P1 Connector API keys (direct integrations) ---
+    fireflies_api_key: str = Field(default="", description="Fireflies.ai API key")
+    anthropic_api_key: SecretStr = Field(default=SecretStr(""), description="Anthropic API key")
+    google_search_api_key: str = Field(default="", description="Google Custom Search API key")
+    google_search_cx: str = Field(default="", description="Google Custom Search engine ID")
+
     # --- Onboarding: fast-path ingestion ---
     fast_path_default_n: int = Field(
         default=50,

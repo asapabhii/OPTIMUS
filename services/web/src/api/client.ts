@@ -32,9 +32,9 @@ async function request<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  // Attach JWT token if available (skip for login endpoint)
+  // Attach JWT token if available (skip for auth endpoints)
   const token = localStorage.getItem("token");
-  if (token && !path.includes("/auth/login")) {
+  if (token && !path.includes("/auth/login") && !path.includes("/auth/signup")) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
@@ -97,9 +97,19 @@ export function isAuthenticated(): boolean {
 export function logout() {
   localStorage.removeItem("token");
   localStorage.removeItem("username");
+  localStorage.removeItem("user_id");
+  localStorage.removeItem("user_role");
   window.location.href = "/login";
 }
 
 export function getUsername(): string {
   return localStorage.getItem("username") || "";
+}
+
+export function getUserId(): string {
+  return localStorage.getItem("user_id") || "00000000-0000-0000-0000-000000000001";
+}
+
+export function getUserRole(): string {
+  return localStorage.getItem("user_role") || "user";
 }

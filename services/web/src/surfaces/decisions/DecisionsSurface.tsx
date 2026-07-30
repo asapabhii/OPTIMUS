@@ -156,8 +156,12 @@ export function DecisionsSurface() {
 
   const handleResolve = async (
     decisionId: string,
-    action: "merge" | "reject"
+    action: "merge" | "reject" | "skip"
   ) => {
+    if (action === "skip") {
+      setExpandedId(null);
+      return;
+    }
     setResolving(decisionId);
     try {
       await api.post(`/api/v1/decisions/${decisionId}/resolve`, null, {
@@ -326,6 +330,16 @@ export function DecisionsSurface() {
                         >
                           <X className="h-3 w-3" />
                           Not the same
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleResolve(d.decision_id, "skip");
+                          }}
+                          disabled={resolving === d.decision_id}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted/40 disabled:opacity-50 transition-all"
+                        >
+                          Skip
                         </button>
                       </div>
                     )}

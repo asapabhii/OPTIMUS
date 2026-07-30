@@ -7,6 +7,9 @@ import { CanonSurface } from "./surfaces/canon/CanonSurface";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 import { LoginPage } from "./pages/LoginPage";
 import { SourcesPage } from "./pages/SourcesPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { WorkSurface } from "./surfaces/work/WorkSurface";
+import { AdminSurface } from "./surfaces/admin/AdminSurface";
 import { isAuthenticated } from "./api/client";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -42,6 +45,9 @@ export default function App() {
         <Route path="/decisions" element={<DecisionsSurface />} />
         <Route path="/canon" element={<CanonSurface />} />
         <Route path="/sources" element={<SourcesPage />} />
+        <Route path="/work" element={<WorkSurface />} />
+        <Route path="/admin" element={<AdminSurface />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
       {/* Catch-all */}
       <Route path="*" element={<Navigate to="/login" replace />} />

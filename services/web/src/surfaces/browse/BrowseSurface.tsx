@@ -175,31 +175,59 @@ function EntityDetailPanel({
   const colorClass = TYPE_COLORS[entity.type] || "text-gray-400 bg-gray-500/10";
   const props = entity.properties || {};
 
-  // Find related entities (same source, same type, or name overlap)
+  // Find related entities using multiple signals
+  const entityName = entity.name.toLowerCase();
+  const entityDomain = (entity.properties?.domain || "").toLowerCase();
+  const entityEmail = (entity.properties?.email || "").toLowerCase();
+  const entityCompany = (entity.properties?.company || "").toLowerCase();
+
   const related = allEntities.filter((e) => {
     if (e.entity_id === entity.entity_id) return false;
-    // Same person mentioned in emails
+    const eName = e.name.toLowerCase();
+    const eProps = e.properties || {};
+
+    // Person <-> Email: person mentioned in email from/to
     if (entity.type === "person" && e.type === "email") {
-      const from = e.properties?.from || "";
-      const to = e.properties?.to || "";
-      const email = entity.properties?.email || "";
-      if (email && (from.includes(email) || to.includes(email))) return true;
+      const from = (eProps.from || "").toLowerCase();
+      const to = (eProps.to || "").toLowerCase();
+      if (entityEmail && (from.includes(entityEmail) || to.includes(entityEmail))) return true;
+      if (entityName.length > 3 && (from.includes(entityName) || to.includes(entityName))) return true;
     }
-    // Same company domain
+    if (entity.type === "email" && e.type === "person") {
+      const from = (props.from || "").toLowerCase();
+      const to = (props.to || "").toLowerCase();
+      const pEmail = (eProps.email || "").toLowerCase();
+      if (pEmail && (from.includes(pEmail) || to.includes(pEmail))) return true;
+    }
+
+    // Company <-> Person: person works at company (by domain or company field)
     if (entity.type === "company" && e.type === "person") {
-      const eDomain = entity.properties?.domain || "";
-      const pEmail = e.properties?.email || "";
-      if (eDomain && pEmail.includes(eDomain)) return true;
+      const pEmail = (eProps.email || "").toLowerCase();
+      const pCompany = (eProps.company || "").toLowerCase();
+      if (entityDomain && pEmail.includes(entityDomain)) return true;
+      if (entityName.length > 2 && pCompany.includes(entityName)) return true;
     }
-    // Same source + type
-    if (
-      e.sources.some((s) => entity.sources.includes(s)) &&
-      e.type === entity.type &&
-      e.name.split(" ")[0] === entity.name.split(" ")[0]
-    )
+    if (entity.type === "person" && e.type === "company") {
+      const cDomain = (eProps.domain || "").toLowerCase();
+      if (cDomain && entityEmail.includes(cDomain)) return true;
+      if (entityCompany && eName.includes(entityCompany)) return true;
+    }
+
+    // Company <-> Deal: deal belongs to company (by name overlap)
+    if (entity.type === "company" && e.type === "deal") {
+      if (entityName.length > 2 && eName.includes(entityName)) return true;
+    }
+    if (entity.type === "deal" && e.type === "company") {
+      if (eName.length > 2 && entityName.includes(eName)) return true;
+    }
+
+    // Same name across different sources (cross-source match)
+    if (e.type === entity.type && eName === entityName && !e.sources.every((s) => entity.sources.includes(s))) {
       return true;
+    }
+
     return false;
-  }).slice(0, 8);
+  }).slice(0, 10);
 
   // Organize properties into sections
   const primaryProps: [string, string][] = [];
@@ -229,9 +257,9 @@ function EntityDetailPanel({
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[480px] bg-card border-l border-border shadow-2xl z-50 flex flex-col animate-slide-in-right">
+    <div className="fixed inset-y-0 right-0 w-[480px] bg-[#0d1117] border-l border-border shadow-2xl z-50 flex flex-col animate-slide-in-right">
       {/* Header */}
-      <div className="p-5 border-b border-border">
+      <div className="p-5 border-b border-border bg-[#0d1117]">
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-3 min-w-0">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${colorClass}`}>

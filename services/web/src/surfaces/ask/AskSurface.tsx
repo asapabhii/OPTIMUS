@@ -14,7 +14,7 @@ import {
   MessageSquare,
   MoreHorizontal,
 } from "lucide-react";
-import { api } from "../../api/client";
+import { api, getUserId } from "../../api/client";
 import { useNavigate } from "react-router-dom";
 
 interface Citation {
@@ -313,7 +313,7 @@ export function AskSurface() {
         if (currentFiles.length > 0) {
           const formData = new FormData();
           formData.append("question", text);
-          formData.append("viewer_id", "00000000-0000-0000-0000-000000000001");
+          formData.append("viewer_id", getUserId());
           formData.append("history", JSON.stringify(chatHistory));
           for (const file of currentFiles) {
             formData.append("files", file);
@@ -322,7 +322,7 @@ export function AskSurface() {
         } else {
           resp = await api.post<AnswerEnvelope>("/api/v1/ask", {
             question: text,
-            viewer_id: "00000000-0000-0000-0000-000000000001",
+            viewer_id: getUserId(),
             history: chatHistory,
           });
         }

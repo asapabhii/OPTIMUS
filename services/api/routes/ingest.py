@@ -472,14 +472,42 @@ async def _ingest_google_drive(
 async def _ingest_google_sheets(
     secret: str, connection_id: str, limit: int
 ) -> tuple[list[EntityRecord], list[str]]:
-    """Fetch spreadsheets via Google Drive API (filtered to sheets) through Nango proxy."""
+    """Fetch spreadsheets via Google Drive API (filtered to sheets) through Nango proxy.
+
+    Uses the google-drive connection since Sheets are Drive files and the
+    google-sheet integration may not have Drive file-listing scope.
+    """
     entities: list[EntityRecord] = []
     errors: list[str] = []
 
+    # Try using google-drive connection first (sheets are Drive files)
+    # Find the drive connection ID from Nango
+    drive_connection_id = connection_id
+    settings = get_settings()
+    nango_secret = settings.nango_secret_key.get_secret_value()
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.nango.dev/connections",
+                headers={"Authorization": f"Bearer {nango_secret}"},
+                timeout=10.0,
+            )
+            if resp.status_code == 200:
+                conns_data = resp.json()
+                conns_list = conns_data.get("connections", []) if isinstance(conns_data, dict) else conns_data
+                for c in conns_list:
+                    pck = c.get("provider_config_key", "")
+                    if pck == "google-drive":
+                        drive_connection_id = c.get("connection_id", connection_id)
+                        break
+    except Exception:
+        pass
+
     data = await _nango_proxy_get(
-        secret,
-        connection_id,
-        "google-sheet",
+        nango_secret,
+        drive_connection_id,
+        "google-drive",
         "drive/v3/files",
         {
             "pageSize": str(limit),
@@ -490,7 +518,7 @@ async def _ingest_google_sheets(
     )
 
     if not data or "files" not in data:
-        errors.append("No spreadsheets returned from Google Sheets")
+        errors.append("No spreadsheets returned (Drive connection may need Sheets scope)")
         return entities, errors
 
     for f in data.get("files", [])[:limit]:
@@ -587,6 +615,17 @@ async def _ingest_hubspot(
     else:
         errors.append("No contacts returned from HubSpot")
 
+    # Fetch pipeline stages to resolve stage IDs to names
+    stage_names: dict[str, str] = {}
+    try:
+        pipelines_data = await _hubspot_api_get(token, "crm/v3/pipelines/deals")
+        if pipelines_data and "results" in pipelines_data:
+            for pipeline in pipelines_data["results"]:
+                for stage in pipeline.get("stages", []):
+                    stage_names[stage["id"]] = stage.get("label", stage["id"])
+    except Exception as e:
+        logger.warning("hubspot_pipeline_fetch_failed", error=str(e))
+
     # Fetch deals
     deals_data = await _hubspot_api_get(
         token,
@@ -597,6 +636,9 @@ async def _ingest_hubspot(
     if deals_data and "results" in deals_data:
         for d in deals_data["results"][:limit]:
             props = d.get("properties", {})
+            raw_stage = props.get("dealstage", "")
+            stage_label = stage_names.get(raw_stage, raw_stage)
+
             entities.append(
                 EntityRecord(
                     id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"hubspot:deal:{d['id']}")),
@@ -606,7 +648,7 @@ async def _ingest_hubspot(
                     source_id=d["id"],
                     properties={
                         "amount": props.get("amount", ""),
-                        "stage": props.get("dealstage", ""),
+                        "stage": stage_label,
                         "close_date": props.get("closedate", ""),
                         "pipeline": props.get("pipeline", ""),
                     },
@@ -654,11 +696,321 @@ async def _ingest_hubspot(
     return entities, errors
 
 
+async def _ingest_github(
+    secret: str, connection_id: str, limit: int
+) -> tuple[list[EntityRecord], list[str]]:
+    """Fetch repos and issues from GitHub via Nango proxy."""
+    entities: list[EntityRecord] = []
+    errors: list[str] = []
+
+    # Fetch repositories
+    data = await _nango_proxy_get(secret, connection_id, "github", "user/repos", {
+        "sort": "updated", "per_page": str(min(limit, 30)),
+    })
+
+    if isinstance(data, list):
+        for repo in data[:limit]:
+            entities.append(EntityRecord(
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"github:repo:{repo['id']}")),
+                type="document",
+                name=repo.get("full_name", repo.get("name", "")),
+                source="github",
+                source_id=str(repo["id"]),
+                properties={
+                    "description": repo.get("description", "") or "",
+                    "language": repo.get("language", "") or "",
+                    "stars": repo.get("stargazers_count", 0),
+                    "updated": repo.get("updated_at", ""),
+                    "url": repo.get("html_url", ""),
+                    "private": repo.get("private", False),
+                },
+                fetched_at=datetime.utcnow().isoformat(),
+                connection_id=connection_id,
+            ))
+    else:
+        errors.append("No repos returned from GitHub")
+
+    return entities, errors
+
+
+async def _ingest_google_calendar(
+    secret: str, connection_id: str, limit: int
+) -> tuple[list[EntityRecord], list[str]]:
+    """Fetch upcoming calendar events via Google Calendar API through Nango proxy."""
+    entities: list[EntityRecord] = []
+    errors: list[str] = []
+
+    now = datetime.utcnow().isoformat() + "Z"
+    data = await _nango_proxy_get(secret, connection_id, "google-calendar", "calendar/v3/calendars/primary/events", {
+        "timeMin": now, "maxResults": str(min(limit, 50)),
+        "singleEvents": "true", "orderBy": "startTime",
+    })
+
+    if data and "items" in data:
+        for ev in data["items"][:limit]:
+            start = ev.get("start", {}).get("dateTime", ev.get("start", {}).get("date", ""))
+            end = ev.get("end", {}).get("dateTime", ev.get("end", {}).get("date", ""))
+            attendees = [a.get("email", "") for a in ev.get("attendees", [])]
+
+            entities.append(EntityRecord(
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"gcal:{ev.get('id', '')}")),
+                type="event",
+                name=ev.get("summary", "Untitled event"),
+                source="google-calendar",
+                source_id=ev.get("id", ""),
+                properties={
+                    "start": start,
+                    "end": end,
+                    "location": ev.get("location", ""),
+                    "organizer": ev.get("organizer", {}).get("email", ""),
+                    "attendees": ", ".join(attendees[:10]),
+                    "status": ev.get("status", ""),
+                    "link": ev.get("htmlLink", ""),
+                },
+                fetched_at=datetime.utcnow().isoformat(),
+                connection_id=connection_id,
+            ))
+    else:
+        errors.append("No events returned from Google Calendar")
+
+    return entities, errors
+
+
+async def _ingest_slack(
+    secret: str, connection_id: str, limit: int
+) -> tuple[list[EntityRecord], list[str]]:
+    """Fetch recent messages from Slack channels via Nango proxy."""
+    entities: list[EntityRecord] = []
+    errors: list[str] = []
+
+    # Fetch channels
+    channels_data = await _nango_proxy_get(secret, connection_id, "slack", "conversations.list", {
+        "limit": str(min(limit, 20)), "types": "public_channel,private_channel",
+    })
+
+    if channels_data and channels_data.get("ok"):
+        for ch in (channels_data.get("channels") or [])[:10]:
+            ch_id = ch.get("id", "")
+            ch_name = ch.get("name", "")
+
+            entities.append(EntityRecord(
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:channel:{ch_id}")),
+                type="document",
+                name=f"#{ch_name}",
+                source="slack",
+                source_id=ch_id,
+                properties={
+                    "topic": ch.get("topic", {}).get("value", ""),
+                    "purpose": ch.get("purpose", {}).get("value", ""),
+                    "members": ch.get("num_members", 0),
+                },
+                fetched_at=datetime.utcnow().isoformat(),
+                connection_id=connection_id,
+            ))
+
+            # Fetch recent messages from each channel
+            msgs_data = await _nango_proxy_get(secret, connection_id, "slack", "conversations.history", {
+                "channel": ch_id, "limit": "5",
+            })
+            if msgs_data and msgs_data.get("ok"):
+                for msg in (msgs_data.get("messages") or []):
+                    if msg.get("subtype"):
+                        continue
+                    text = msg.get("text", "")[:200]
+                    if text:
+                        entities.append(EntityRecord(
+                            id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:msg:{ch_id}:{msg.get('ts', '')}")),
+                            type="email",
+                            name=f"Message in #{ch_name}",
+                            source="slack",
+                            source_id=f"{ch_id}:{msg.get('ts', '')}",
+                            properties={
+                                "from": msg.get("user", ""),
+                                "snippet": text,
+                                "channel": ch_name,
+                                "date": msg.get("ts", ""),
+                            },
+                            fetched_at=datetime.utcnow().isoformat(),
+                            connection_id=connection_id,
+                        ))
+    else:
+        errors.append("No channels returned from Slack")
+
+    return entities, errors
+
+
+async def _ingest_notion(
+    secret: str, connection_id: str, limit: int
+) -> tuple[list[EntityRecord], list[str]]:
+    """Fetch pages and databases from Notion via Nango proxy."""
+    entities: list[EntityRecord] = []
+    errors: list[str] = []
+
+    # Notion API requires POST for search
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.nango.dev/proxy/v1/search",
+                headers={
+                    "Authorization": f"Bearer {secret}",
+                    "Connection-Id": connection_id,
+                    "Provider-Config-Key": "notion",
+                    "Content-Type": "application/json",
+                },
+                json={"page_size": min(limit, 50), "sort": {"direction": "descending", "timestamp": "last_edited_time"}},
+                timeout=20.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("results", [])[:limit]:
+                    obj_type = item.get("object", "page")
+                    title = ""
+                    if obj_type == "page":
+                        title_prop = item.get("properties", {}).get("title", item.get("properties", {}).get("Name", {}))
+                        if isinstance(title_prop, dict) and "title" in title_prop:
+                            title_arr = title_prop["title"]
+                            if isinstance(title_arr, list) and title_arr:
+                                title = title_arr[0].get("plain_text", "")
+                    if not title:
+                        title = f"Notion {obj_type} {item.get('id', '')[:8]}"
+
+                    entities.append(EntityRecord(
+                        id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"notion:{item['id']}")),
+                        type="document",
+                        name=title,
+                        source="notion",
+                        source_id=item["id"],
+                        properties={
+                            "type": obj_type,
+                            "url": item.get("url", ""),
+                            "last_edited": item.get("last_edited_time", ""),
+                            "created": item.get("created_time", ""),
+                        },
+                        fetched_at=datetime.utcnow().isoformat(),
+                        connection_id=connection_id,
+                    ))
+            else:
+                errors.append(f"Notion API returned {resp.status_code}")
+    except Exception as e:
+        errors.append(f"Notion ingestion error: {str(e)}")
+
+    return entities, errors
+
+
+async def _ingest_bigquery(
+    secret: str, connection_id: str, limit: int
+) -> tuple[list[EntityRecord], list[str]]:
+    """Fetch datasets and tables from BigQuery via Nango proxy."""
+    entities: list[EntityRecord] = []
+    errors: list[str] = []
+
+    # BigQuery needs project ID — try to get from connection metadata
+    data = await _nango_proxy_get(secret, connection_id, "google-bigquery",
+                                   "bigquery/v2/projects", {})
+
+    if data and "projects" in data:
+        for proj in data["projects"][:5]:
+            project_id = proj.get("id", "")
+            datasets = await _nango_proxy_get(
+                secret, connection_id, "google-bigquery",
+                f"bigquery/v2/projects/{project_id}/datasets", {}
+            )
+            if datasets and "datasets" in datasets:
+                for ds in datasets["datasets"][:limit]:
+                    ds_ref = ds.get("datasetReference", {})
+                    entities.append(EntityRecord(
+                        id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"bq:{project_id}:{ds_ref.get('datasetId', '')}")),
+                        type="document",
+                        name=f"{ds_ref.get('datasetId', '')}",
+                        source="google-bigquery",
+                        source_id=f"{project_id}.{ds_ref.get('datasetId', '')}",
+                        properties={
+                            "project": project_id,
+                            "location": ds.get("location", ""),
+                        },
+                        fetched_at=datetime.utcnow().isoformat(),
+                        connection_id=connection_id,
+                    ))
+    else:
+        errors.append("No projects returned from BigQuery")
+
+    return entities, errors
+
+
+async def _ingest_fireflies(
+    secret: str, connection_id: str, limit: int
+) -> tuple[list[EntityRecord], list[str]]:
+    """Fetch meeting transcripts from Fireflies via their GraphQL API."""
+    entities: list[EntityRecord] = []
+    errors: list[str] = []
+
+    settings = get_settings()
+    ff_key = getattr(settings, "fireflies_api_key", None)
+    api_key = ff_key.get_secret_value() if ff_key else ""
+    if not api_key:
+        errors.append("FIREFLIES_API_KEY not configured")
+        return entities, errors
+
+    query = """
+    query {
+        transcripts(limit: %d) {
+            id title date duration
+            organizer_email
+            sentences { text speaker_name }
+        }
+    }
+    """ % min(limit, 20)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.fireflies.ai/graphql",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"query": query},
+                timeout=30.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                for t in data.get("data", {}).get("transcripts", []):
+                    sentences = t.get("sentences", [])
+                    snippet = " ".join(s.get("text", "") for s in sentences[:5])[:300]
+                    speakers = list({s.get("speaker_name", "") for s in sentences if s.get("speaker_name")})
+
+                    entities.append(EntityRecord(
+                        id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"fireflies:{t['id']}")),
+                        type="document",
+                        name=t.get("title", f"Meeting {t['id'][:8]}"),
+                        source="fireflies",
+                        source_id=t["id"],
+                        properties={
+                            "date": t.get("date", ""),
+                            "duration": t.get("duration", 0),
+                            "organizer": t.get("organizer_email", ""),
+                            "speakers": ", ".join(speakers[:5]),
+                            "snippet": snippet,
+                        },
+                        fetched_at=datetime.utcnow().isoformat(),
+                        connection_id=connection_id or "fireflies-direct",
+                    ))
+            else:
+                errors.append(f"Fireflies API returned {resp.status_code}")
+    except Exception as e:
+        errors.append(f"Fireflies error: {str(e)}")
+
+    return entities, errors
+
+
 PROVIDER_INGESTORS = {
     "google-mail": _ingest_gmail,
     "google-drive": _ingest_google_drive,
     "google-sheet": _ingest_google_sheets,
     "hubspot": _ingest_hubspot,
+    "github": _ingest_github,
+    "google-calendar": _ingest_google_calendar,
+    "slack": _ingest_slack,
+    "notion": _ingest_notion,
+    "google-bigquery": _ingest_bigquery,
+    "fireflies": _ingest_fireflies,
 }
 
 
@@ -868,13 +1220,71 @@ async def _do_ingest(
 
     entities, errors = await ingestor(secret, connection_id, limit)
 
+    # Filter junk entities before adding to store
+    JUNK_DOMAINS = {
+        "bcc.na2.hubspot.com", "accounts.google.com", "cloud.google.com",
+        "no-reply.accounts.google.com", "calendar-notification@google.com",
+        "notifications@github.com", "noreply@github.com",
+    }
+    JUNK_PREFIXES = {"bcc.", "no-reply.", "noreply.", "mailer-daemon"}
+
+    filtered_entities = []
+    for entity in entities:
+        if entity.type == "company":
+            domain = entity.properties.get("domain", "").lower()
+            name_lower = entity.name.lower()
+            if domain in JUNK_DOMAINS:
+                continue
+            if any(name_lower.startswith(p) for p in JUNK_PREFIXES):
+                continue
+            if any(domain.startswith(p) for p in JUNK_PREFIXES):
+                continue
+        filtered_entities.append(entity)
+    entities = filtered_entities
+
+    # Cross-source entity deduplication: if same normalized name + type exists
+    # from a different source, merge properties instead of creating duplicates
     existing_ids = {(e.source, e.source_id) for e in _entity_store}
+    existing_by_norm: dict[tuple[str, str], int] = {}
+    for idx, e in enumerate(_entity_store):
+        norm_key = (e.name.lower().strip(), e.type)
+        if norm_key not in existing_by_norm:
+            existing_by_norm[norm_key] = idx
+
     new_count = 0
     for entity in entities:
-        if (entity.source, entity.source_id) not in existing_ids:
-            _entity_store.append(entity)
-            existing_ids.add((entity.source, entity.source_id))
-            new_count += 1
+        if (entity.source, entity.source_id) in existing_ids:
+            continue
+
+        norm_key = (entity.name.lower().strip(), entity.type)
+        if norm_key in existing_by_norm and entity.type in {"company", "person"}:
+            # Merge: update existing entity with additional source info
+            existing_idx = existing_by_norm[norm_key]
+            existing_entity = _entity_store[existing_idx]
+            if existing_entity.source != entity.source:
+                # Add cross-source reference
+                merged_props = {**existing_entity.properties}
+                for k, v in entity.properties.items():
+                    if v and (k not in merged_props or not merged_props[k]):
+                        merged_props[k] = v
+                merged_props[f"also_in_{entity.source}"] = True
+                _entity_store[existing_idx] = EntityRecord(
+                    id=existing_entity.id,
+                    type=existing_entity.type,
+                    name=existing_entity.name,
+                    source=existing_entity.source,
+                    source_id=existing_entity.source_id,
+                    properties=merged_props,
+                    fetched_at=existing_entity.fetched_at,
+                    connection_id=existing_entity.connection_id,
+                )
+                new_count += 1
+                continue
+
+        _entity_store.append(entity)
+        existing_ids.add((entity.source, entity.source_id))
+        existing_by_norm[norm_key] = len(_entity_store) - 1
+        new_count += 1
 
     if new_count > 0:
         _persist_entity_store()
@@ -989,6 +1399,42 @@ async def _do_ingest(
 
         if proposals_added:
             _persist_proposals()
+
+            # Auto-approve high-confidence CRM proposals (domain assertions from
+            # authoritative CRM sources) so the Canon Company Knowledge tab is
+            # not empty on first load.
+            from services.api.routes.canon import (
+                Assertion,
+                _persist_assertions,
+            )
+
+            auto_approved = False
+            for p in list(_proposals):
+                if (
+                    p.status == "pending"
+                    and p.source in CRM_SOURCES
+                    and p.field == "domain"
+                    and p.new_value
+                ):
+                    # Create an assertion from this proposal
+                    _assertions.append(Assertion(
+                        entity_name=p.entity_name,
+                        entity_type=p.entity_type,
+                        field=p.field,
+                        value=p.new_value,
+                        source=p.source,
+                        author="system (auto-approved from CRM)",
+                        status=AssertionStatus.ACTIVE,
+                    ))
+                    p.status = "approved"
+                    p.reviewed_by = "system"
+                    auto_approved = True
+
+            if auto_approved:
+                _persist_assertions()
+                _persist_proposals()
+                logger.info("canon_auto_approved_crm_domains")
+
     except Exception as e:
         if "skip" not in str(e):
             logger.warning("canon_proposal_generation_failed", error=str(e))
