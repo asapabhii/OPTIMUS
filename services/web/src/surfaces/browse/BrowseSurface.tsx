@@ -19,6 +19,10 @@ import {
   Clock,
   Tag,
   Link2,
+  MessageSquare,
+  Calendar,
+  Hash,
+  ArrowUpDown,
 } from "lucide-react";
 import { api, getUserId } from "../../api/client";
 
@@ -46,6 +50,9 @@ const TYPE_ICONS: Record<string, typeof User> = {
   ticket: Ticket,
   deal: DollarSign,
   spreadsheet: FileSpreadsheet,
+  channel: Hash,
+  message: MessageSquare,
+  event: Calendar,
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -56,17 +63,42 @@ const TYPE_COLORS: Record<string, string> = {
   ticket: "text-red-400 bg-red-500/10",
   deal: "text-emerald-400 bg-emerald-500/10",
   spreadsheet: "text-teal-400 bg-teal-500/10",
+  channel: "text-pink-400 bg-pink-500/10",
+  message: "text-indigo-400 bg-indigo-500/10",
+  event: "text-orange-400 bg-orange-500/10",
+};
+
+const SOURCE_LOGOS: Record<string, { emoji: string; color: string }> = {
+  "hubspot": { emoji: "H", color: "bg-orange-500" },
+  "google-mail": { emoji: "G", color: "bg-red-500" },
+  "google-drive": { emoji: "D", color: "bg-yellow-500" },
+  "google-sheet": { emoji: "S", color: "bg-green-600" },
+  "google-calendar": { emoji: "C", color: "bg-blue-500" },
+  "notion": { emoji: "N", color: "bg-gray-100 text-black" },
+  "slack": { emoji: "S", color: "bg-[#4A154B]" },
+  "github": { emoji: "G", color: "bg-gray-700" },
+  "bigquery": { emoji: "B", color: "bg-blue-600" },
+  "fireflies": { emoji: "F", color: "bg-violet-500" },
 };
 
 const TYPE_FILTERS = [
   { value: "", label: "All" },
-  { value: "person", label: "People" },
   { value: "company", label: "Companies" },
   { value: "deal", label: "Deals" },
+  { value: "person", label: "People" },
+  { value: "spreadsheet", label: "Sheets" },
+  { value: "event", label: "Events" },
+  { value: "channel", label: "Channels" },
   { value: "document", label: "Documents" },
   { value: "email", label: "Emails" },
-  { value: "ticket", label: "Tickets" },
-  { value: "spreadsheet", label: "Sheets" },
+  { value: "message", label: "Messages" },
+];
+
+const SORT_OPTIONS = [
+  { value: "priority", label: "Priority" },
+  { value: "name", label: "Name" },
+  { value: "recent", label: "Recent" },
+  { value: "source", label: "Source" },
 ];
 
 const PROP_LABELS: Record<string, string> = {
@@ -408,6 +440,7 @@ export function BrowseSurface() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [sortBy, setSortBy] = useState("priority");
   const [selectedEntity, setSelectedEntity] = useState<EntitySummary | null>(null);
 
   const fetchEntities = async () => {
@@ -415,6 +448,7 @@ export function BrowseSurface() {
     try {
       const params: Record<string, string> = {
         viewer_id: getUserId(),
+        sort: sortBy,
       };
       if (typeFilter) params.entity_type = typeFilter;
       if (search) params.search = search;
@@ -432,7 +466,7 @@ export function BrowseSurface() {
 
   useEffect(() => {
     fetchEntities();
-  }, [typeFilter]);
+  }, [typeFilter, sortBy]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -475,7 +509,7 @@ export function BrowseSurface() {
         </button>
       </div>
 
-      {/* Search + filters */}
+      {/* Search + sort */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -487,21 +521,39 @@ export function BrowseSurface() {
             className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
           />
         </div>
-        <div className="flex items-center gap-1">
-          {TYPE_FILTERS.map((f) => (
+        <div className="flex items-center gap-1 border border-border rounded-lg p-0.5">
+          <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground ml-2" />
+          {SORT_OPTIONS.map((s) => (
             <button
-              key={f.value}
-              onClick={() => setTypeFilter(f.value)}
-              className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                typeFilter === f.value
+              key={s.value}
+              onClick={() => setSortBy(s.value)}
+              className={`px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                sortBy === s.value
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-accent"
               }`}
             >
-              {f.label}
+              {s.label}
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Type filters */}
+      <div className="flex items-center gap-1 flex-wrap">
+        {TYPE_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setTypeFilter(f.value)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              typeFilter === f.value
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent border border-border"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {/* Content */}
@@ -521,25 +573,37 @@ export function BrowseSurface() {
               <button
                 key={entity.entity_id}
                 onClick={() => setSelectedEntity(isSelected ? null : entity)}
-                className={`w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all ${
+                className={`w-full flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all ${
                   isSelected
                     ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                     : "border-border hover:border-primary/30 hover:bg-accent/50"
                 }`}
               >
-                <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${colorClass}`}
-                >
-                  <Icon className="h-5 w-5" />
+                {/* Source badge (small, bottom-right of type icon) */}
+                <div className="relative">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center ${colorClass}`}
+                  >
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  {entity.sources[0] && SOURCE_LOGOS[entity.sources[0]] && (
+                    <div
+                      className={`absolute -bottom-1 -right-1 w-4.5 h-4.5 rounded-full flex items-center justify-center text-[8px] font-bold text-white ring-2 ring-background ${SOURCE_LOGOS[entity.sources[0]].color}`}
+                      style={{ width: 18, height: 18 }}
+                      title={entity.sources[0]}
+                    >
+                      {SOURCE_LOGOS[entity.sources[0]].emoji}
+                    </div>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-sm truncate">
                     {entity.name}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {entity.type} · {entity.sources.join(", ")} ·{" "}
-                    {entity.source_count} source
-                    {entity.source_count !== 1 ? "s" : ""}
+                  <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                    <span className="capitalize">{entity.type}</span>
+                    <span className="opacity-30">·</span>
+                    <span>{entity.sources.join(", ")}</span>
                   </div>
                 </div>
                 <ChevronRight
@@ -547,9 +611,6 @@ export function BrowseSurface() {
                     isSelected ? "rotate-90 text-primary" : ""
                   }`}
                 />
-                <div className="text-xs text-muted-foreground">
-                  {entity.last_updated.slice(0, 10)}
-                </div>
               </button>
             );
           })}

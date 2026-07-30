@@ -51,7 +51,7 @@ function ProviderIcon({
   return <Icon className={className} />;
 }
 
-const SYNC_INTERVAL = 60 * 60 * 1000; // 1 hour
+const SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
 export function SourcesPage() {
   const navigate = useNavigate();
@@ -274,7 +274,7 @@ export function SourcesPage() {
       {connected.length > 0 && (
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground/40 px-1">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500/50 animate-pulse" />
-          Auto-sync enabled (every hour)
+          Auto-sync enabled (every 10 min)
         </div>
       )}
 
@@ -352,7 +352,7 @@ export function SourcesPage() {
 
           <p className="text-[11px] text-muted-foreground">
             Connect multiple accounts of the same type (e.g. personal + work
-            Gmail). Data is automatically synced every hour.
+            Gmail). Data is automatically synced every 10 minutes.
           </p>
         </div>
       )}

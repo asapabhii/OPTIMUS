@@ -11,6 +11,24 @@ from services.api.routes.ingest import get_entity_store
 
 router = APIRouter()
 
+TYPE_PRIORITY = {
+    "company": 0,
+    "deal": 1,
+    "person": 2,
+    "spreadsheet": 3,
+    "event": 4,
+    "channel": 5,
+    "document": 6,
+    "email": 7,
+    "message": 8,
+}
+
+MIN_NAME_LENGTH = 2
+JUNK_NAMES = {
+    "hi", "hello", "test", "untitled", "new doc", "undefined",
+    "null", "none", "n/a", "", ".", "..",
+}
+
 
 class EntitySummary(BaseModel):
     entity_id: str
@@ -33,6 +51,7 @@ async def list_entities(
     viewer_id: str = "",
     entity_type: str | None = None,
     search: str | None = None,
+    sort: str = "priority",
     limit: int = 100,
     offset: int = 0,
 ) -> EntityGraph:
@@ -44,7 +63,23 @@ async def list_entities(
         filtered = [e for e in filtered if e.type == entity_type]
     if search:
         q = search.lower()
-        filtered = [e for e in filtered if q in e.name.lower()]
+        filtered = [
+            e for e in filtered
+            if q in e.name.lower()
+            or q in e.source.lower()
+            or any(q in str(v).lower() for v in e.properties.values())
+        ]
+
+    # Filter out junk/noise entities
+    cleaned = []
+    for e in filtered:
+        name_lower = e.name.lower().strip()
+        if len(name_lower) < MIN_NAME_LENGTH:
+            continue
+        if name_lower in JUNK_NAMES:
+            continue
+        cleaned.append(e)
+    filtered = cleaned
 
     sources_set: set[str] = set()
     entities: list[EntitySummary] = []
@@ -60,6 +95,24 @@ async def list_entities(
             last_updated=record.fetched_at,
             properties=record.properties,
         ))
+
+    # Sort by type priority, then alphabetically
+    if sort == "priority":
+        entities.sort(
+            key=lambda e: (
+                TYPE_PRIORITY.get(e.type, 99),
+                e.name.lower(),
+            )
+        )
+    elif sort == "name":
+        entities.sort(key=lambda e: e.name.lower())
+    elif sort == "recent":
+        entities.sort(
+            key=lambda e: e.last_updated or "",
+            reverse=True,
+        )
+    elif sort == "source":
+        entities.sort(key=lambda e: (e.sources[0] if e.sources else "", e.name.lower()))
 
     total = len(entities)
     paginated = entities[offset : offset + limit]

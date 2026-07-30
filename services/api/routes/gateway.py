@@ -122,6 +122,16 @@ def _verify_slack_signature(request_body: bytes, timestamp: str, signature: str)
     return hmac.compare_digest(computed, signature)
 
 
+def _md_to_slack(text: str) -> str:
+    """Convert standard markdown to Slack mrkdwn format."""
+    import re
+    t = text
+    t = re.sub(r'^#{1,6}\s+(.*)', r'*\1*', t, flags=re.MULTILINE)
+    t = re.sub(r'\*\*(.+?)\*\*', r'*\1*', t)
+    t = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<\2|\1>', t)
+    return t
+
+
 async def _slack_send_message(channel: str, text: str, thread_ts: str = ""):
     """Send a message to a Slack channel."""
     config = _get_slack_config()
@@ -129,6 +139,7 @@ async def _slack_send_message(channel: str, text: str, thread_ts: str = ""):
         logger.warning("slack_send_skipped", reason="No bot token")
         return
 
+    text = _md_to_slack(text)
     payload: dict[str, Any] = {"channel": channel, "text": text}
     if thread_ts:
         payload["thread_ts"] = thread_ts
@@ -259,7 +270,7 @@ async def _process_assistant_thread(event: dict):
             await client.post(
                 "https://slack.com/api/chat.postMessage",
                 headers={"Authorization": f"Bearer {config.bot_token}", "Content-Type": "application/json"},
-                json={"channel": channel, "thread_ts": thread_ts, "text": result or "I couldn't process that request."},
+                json={"channel": channel, "thread_ts": thread_ts, "text": _md_to_slack(result) if result else "I couldn't process that request."},
                 timeout=15.0,
             )
 

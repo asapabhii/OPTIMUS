@@ -10,7 +10,8 @@ import {
   LogOut,
   Settings,
 } from "lucide-react";
-import { logout, getUsername } from "../../api/client";
+import { useEffect, useRef } from "react";
+import { api, logout, getUsername, getUserId } from "../../api/client";
 
 const navItems = [
   {
@@ -59,6 +60,15 @@ const navItems = [
 
 export function Layout() {
   const navigate = useNavigate();
+  const syncedRef = useRef(false);
+
+  useEffect(() => {
+    if (syncedRef.current) return;
+    syncedRef.current = true;
+    api.post("/api/v1/ingest/all", null, {
+      params: { viewer_id: getUserId() },
+    }).catch(() => {});
+  }, []);
 
   return (
     <div className="flex h-screen bg-background">
