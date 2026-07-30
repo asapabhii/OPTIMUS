@@ -111,18 +111,31 @@ async def list_connected_sources(viewer_id: uuid.UUID) -> list[SourceInfo]:
     secret = settings.nango_secret_key.get_secret_value()
     sources: list[SourceInfo] = []
 
-    # Nango connections
+    # Nango connections — filter by end_user_id so each user only sees their own
     if secret:
         try:
             async with httpx.AsyncClient() as client:
+                params: dict[str, str] = {}
+                if viewer_id:
+                    params["end_user_id"] = str(viewer_id)
+
                 resp = await client.get(
                     f"{settings.nango_base_url}/connections",
                     headers={"Authorization": f"Bearer {secret}"},
+                    params=params,
                     timeout=10.0,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
                     connections = data.get("connections", []) if isinstance(data, dict) else data
+
+                    # Also client-side filter by end_user.id as a safety net
+                    if viewer_id:
+                        vid = str(viewer_id)
+                        connections = [
+                            c for c in connections
+                            if not c.get("end_user") or c["end_user"].get("id") == vid
+                        ]
 
                     seen_providers: dict[str, dict] = {}
                     for conn in connections:
