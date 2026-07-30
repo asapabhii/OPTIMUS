@@ -663,7 +663,7 @@ export function BrowseSurface() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-sm truncate">
-                    {entity.name}
+                    {entity.type === "channel" ? `#${entity.name}` : entity.name}
                   </div>
                   <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
                     {getSubtitle(entity)}

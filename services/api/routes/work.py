@@ -860,7 +860,7 @@ async def list_skills() -> list[dict]:
 
 
 @router.post("/work/skills/{skill_id}/run")
-async def run_skill(skill_id: str, params: dict[str, str] = {}) -> WorkResult:
+async def run_skill(skill_id: str, params: dict[str, str] = {}, viewer_id: str = "") -> WorkResult:
     """Run a skill with the given parameters."""
     skill = next((s for s in _skills if s.id == skill_id), None)
     if not skill:
@@ -872,17 +872,33 @@ async def run_skill(skill_id: str, params: dict[str, str] = {}) -> WorkResult:
         prompt = prompt.replace(f"{{{key}}}", value)
 
     start = time.time()
-    result_text, steps = await _run_agent(prompt)
+
+    task = WorkTask(
+        objective=f"[Skill: {skill.name}] {prompt}",
+        status=TaskStatus.IN_PROGRESS,
+        viewer_id=viewer_id,
+    )
+    _work_tasks.append(task)
+
+    result_text, steps = await _run_agent(prompt, viewer_id=viewer_id)
+
+    task.status = TaskStatus.COMPLETED
+    task.result = {"output": result_text, "skill": skill.name, "params": params}
+    task.steps = steps
+    task.completed_at = datetime.now(timezone.utc).isoformat()
 
     skill.usage_count += 1
     _persist_skills()
+    _persist_tasks()
+
+    latency = int((time.time() - start) * 1000)
 
     return WorkResult(
-        task_id=str(uuid.uuid4()),
+        task_id=task.id,
         status="completed",
-        result={"output": result_text, "skill": skill.name},
+        result=task.result,
         steps=steps,
-        latency_ms=int((time.time() - start) * 1000),
+        latency_ms=latency,
     )
 
 
@@ -948,14 +964,30 @@ async def generate_daily_brief(viewer_id: str = "") -> WorkResult:
         "Be concise and actionable. Prioritize items that need attention today."
     )
     start = time.time()
+
+    task = WorkTask(
+        objective="[Daily Brief] " + prompt[:100],
+        status=TaskStatus.IN_PROGRESS,
+        viewer_id=viewer_id,
+    )
+    _work_tasks.append(task)
+
     result_text, steps = await _run_agent(prompt, viewer_id=viewer_id)
 
+    task.status = TaskStatus.COMPLETED
+    task.result = {"output": result_text, "type": "daily_brief"}
+    task.steps = steps
+    task.completed_at = datetime.now(timezone.utc).isoformat()
+    _persist_tasks()
+
+    latency = int((time.time() - start) * 1000)
+
     return WorkResult(
-        task_id=str(uuid.uuid4()),
+        task_id=task.id,
         status="completed",
-        result={"output": result_text, "type": "daily_brief"},
+        result=task.result,
         steps=steps,
-        latency_ms=int((time.time() - start) * 1000),
+        latency_ms=latency,
     )
 
 
@@ -1016,6 +1048,24 @@ async def list_tasks(viewer_id: str = "", limit: int = 20) -> list[dict]:
             "created_at": t.created_at,
             "completed_at": t.completed_at,
             "steps_count": len(t.steps),
+            "skill": t.result.get("skill", "") if t.result else "",
+            "result_type": t.result.get("type", "") if t.result else "",
+            "output_preview": (t.result.get("output", "") or "")[:120] if t.result else "",
         }
         for t in sorted(tasks, key=lambda x: x.created_at, reverse=True)[:limit]
     ]
+
+
+@router.get("/work/tasks/{task_id}")
+async def get_task_detail(task_id: str) -> dict:
+    """Get full task detail including result and steps."""
+    task = next((t for t in _work_tasks if t.id == task_id), None)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    return {
+        "task_id": task.id,
+        "status": task.status.value,
+        "result": task.result,
+        "steps": task.steps,
+        "latency_ms": 0,
+    }

@@ -60,8 +60,75 @@ async def _auto_reingest_if_empty():
             await ingest_all_connections()
             store = get_entity_store()
             logger.info("auto_reingest_complete", entities=len(store))
+
+        # Also rebuild canon proposals if empty (ephemeral filesystem on Railway)
+        await _auto_rebuild_canon_if_empty()
     except Exception as e:
         logger.warning("auto_reingest_failed", error=str(e))
+
+
+async def _auto_rebuild_canon_if_empty():
+    """If canon is empty but entities exist, regenerate proposals from entities."""
+    try:
+        from services.api.routes.canon import (
+            _assertions, _proposals, _persist_proposals,
+            Proposal, ProposalSource, StakeLevel,
+        )
+        from services.api.routes.ingest import get_entity_store
+
+        if len(_assertions) > 0 or len(_proposals) > 0:
+            return
+
+        store = get_entity_store()
+        if len(store) == 0:
+            return
+
+        logger.info("canon_auto_rebuild", reason="canon_empty_but_entities_exist")
+
+        CRM_SOURCES = {"hubspot", "salesforce", "pipedrive"}
+        proposals_added = False
+
+        for entity in store:
+            if entity.source in CRM_SOURCES:
+                if entity.type == "company" and entity.properties.get("domain"):
+                    _proposals.append(Proposal(
+                        action="create", entity_name=entity.name,
+                        entity_type="company", field="domain",
+                        new_value=entity.properties["domain"],
+                        source=entity.source, proposed_by="system",
+                        proposal_source=ProposalSource.SYSTEM,
+                        stake_level=StakeLevel.LOW,
+                        reason=f"Company from {entity.source} CRM (auto-rebuilt)",
+                    ))
+                    proposals_added = True
+                elif entity.type == "deal" and entity.properties.get("amount"):
+                    _proposals.append(Proposal(
+                        action="create", entity_name=entity.name,
+                        entity_type="deal", field="deal_value",
+                        new_value=entity.properties["amount"],
+                        source=entity.source, proposed_by="system",
+                        proposal_source=ProposalSource.SYSTEM,
+                        stake_level=StakeLevel.MEDIUM,
+                        reason=f"Deal from {entity.source} CRM (auto-rebuilt)",
+                    ))
+                    proposals_added = True
+                elif entity.type == "person" and entity.properties.get("company"):
+                    _proposals.append(Proposal(
+                        action="create", entity_name=entity.name,
+                        entity_type="person", field="company",
+                        new_value=entity.properties["company"],
+                        source=entity.source, proposed_by="system",
+                        proposal_source=ProposalSource.SYSTEM,
+                        stake_level=StakeLevel.LOW,
+                        reason=f"Contact from {entity.source} CRM (auto-rebuilt)",
+                    ))
+                    proposals_added = True
+
+        if proposals_added:
+            _persist_proposals()
+            logger.info("canon_auto_rebuild_complete", proposals=len(_proposals))
+    except Exception as e:
+        logger.warning("canon_auto_rebuild_failed", error=str(e))
 
 
 async def _start_slack_poller():

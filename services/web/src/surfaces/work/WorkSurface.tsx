@@ -11,6 +11,7 @@ import {
   Send,
   Calendar,
   BookOpen,
+  History,
 } from "lucide-react";
 import { api, getUserId } from "../../api/client";
 
@@ -38,7 +39,20 @@ interface CrewPlan {
   workstreams: { index: number; objective: string; kind: string; depends_on: number[] }[];
 }
 
-type Tab = "agent" | "crew" | "skills" | "brief";
+type Tab = "agent" | "crew" | "skills" | "brief" | "history";
+
+interface TaskHistoryItem {
+  id: string;
+  objective: string;
+  kind: string;
+  status: string;
+  created_at: string;
+  completed_at: string;
+  steps_count: number;
+  skill: string;
+  result_type: string;
+  output_preview: string;
+}
 
 export function WorkSurface() {
   const [tab, setTab] = useState<Tab>("agent");
@@ -51,16 +65,49 @@ export function WorkSurface() {
   const [briefResult, setBriefResult] = useState<WorkResult | null>(null);
   const [expandedSteps, setExpandedSteps] = useState(false);
   const [skillParams, setSkillParams] = useState<Record<string, string>>({});
+  const [taskHistory, setTaskHistory] = useState<TaskHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [taskDetail, setTaskDetail] = useState<WorkResult | null>(null);
 
   useEffect(() => {
     loadSkills();
   }, []);
+
+  useEffect(() => {
+    if (tab === "history") loadHistory();
+  }, [tab]);
 
   const loadSkills = async () => {
     try {
       const resp = await api.get<Skill[]>("/api/v1/work/skills");
       setSkills(resp.data);
     } catch { /* ignore */ }
+  };
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const resp = await api.get<TaskHistoryItem[]>("/api/v1/work/tasks", {
+        params: { viewer_id: getUserId(), limit: "50" },
+      });
+      setTaskHistory(resp.data);
+    } catch { /* ignore */ }
+    setHistoryLoading(false);
+  };
+
+  const loadTaskDetail = async (taskId: string) => {
+    if (expandedTaskId === taskId) {
+      setExpandedTaskId(null);
+      return;
+    }
+    setExpandedTaskId(taskId);
+    try {
+      const resp = await api.get<WorkResult>(`/api/v1/work/tasks/${taskId}`);
+      setTaskDetail(resp.data);
+    } catch {
+      setTaskDetail(null);
+    }
   };
 
   const executeTask = async () => {
@@ -110,7 +157,8 @@ export function WorkSurface() {
     setTab("agent");
     try {
       const resp = await api.post<WorkResult>(
-        `/api/v1/work/skills/${skill.id}/run`, skillParams
+        `/api/v1/work/skills/${skill.id}/run`, skillParams,
+        { params: { viewer_id: getUserId() } }
       );
       setResult(resp.data);
     } catch { /* ignore */ }
@@ -134,6 +182,7 @@ export function WorkSurface() {
     { id: "crew", label: "Crew", icon: ListTodo },
     { id: "skills", label: "Skills", icon: BookOpen },
     { id: "brief", label: "Daily Brief", icon: Calendar },
+    { id: "history", label: "History", icon: History },
   ];
 
   return (
@@ -309,7 +358,7 @@ export function WorkSurface() {
               <div key={skill.id} className="border border-border rounded-xl p-4 hover:border-primary/30 transition-all">
                 <h3 className="text-sm font-medium">{skill.name}</h3>
                 <p className="text-xs text-muted-foreground mt-1">{skill.description}</p>
-                {skill.parameters.length > 0 && (
+                {skill.parameters.length > 0 ? (
                   <div className="mt-3 space-y-2">
                     {skill.parameters.map((param) => (
                       <input
@@ -321,6 +370,8 @@ export function WorkSurface() {
                       />
                     ))}
                   </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground/50 mt-2">No input needed — runs on all your data</p>
                 )}
                 <div className="flex items-center justify-between mt-3">
                   <span className="text-[10px] text-muted-foreground">{skill.usage_count} runs</span>
@@ -366,6 +417,106 @@ export function WorkSurface() {
               <div className="p-4">
                 <div className="prose prose-invert prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: formatMarkdown(briefResult.result.output || "") }} />
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── History ──────────────────────────────────────────────── */}
+      {tab === "history" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              All agent executions, skill runs, and daily briefs
+            </p>
+            <button
+              onClick={loadHistory}
+              className="text-xs text-primary hover:underline"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {historyLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : taskHistory.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              No tasks run yet. Execute an agent task or run a skill to see history.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {taskHistory.map((t) => {
+                const isSkill = t.objective.startsWith("[Skill:");
+                const isBrief = t.objective.startsWith("[Daily Brief]");
+                const title = isSkill
+                  ? t.objective.replace(/^\[Skill: [^\]]+\]\s*/, "").slice(0, 80)
+                  : isBrief
+                  ? "Daily Brief"
+                  : t.objective.slice(0, 80);
+                const badge = t.skill
+                  ? t.skill
+                  : t.result_type === "daily_brief"
+                  ? "Brief"
+                  : t.kind;
+                const badgeColor = t.skill
+                  ? "bg-purple-500/20 text-purple-300"
+                  : t.result_type === "daily_brief"
+                  ? "bg-blue-500/20 text-blue-300"
+                  : "bg-accent text-muted-foreground";
+                const time = new Date(t.created_at).toLocaleString([], {
+                  month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+                });
+                const isExpanded = expandedTaskId === t.id;
+
+                return (
+                  <div key={t.id} className="border border-border rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => loadTaskDetail(t.id)}
+                      className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-accent/30 transition-all"
+                    >
+                      <div className={`w-2 h-2 rounded-full shrink-0 ${
+                        t.status === "completed" ? "bg-green-500" : t.status === "in_progress" ? "bg-yellow-500 animate-pulse" : "bg-gray-500"
+                      }`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{title}</div>
+                        {t.output_preview && (
+                          <p className="text-[11px] text-muted-foreground/60 truncate mt-0.5">{t.output_preview}</p>
+                        )}
+                        <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${badgeColor}`}>{badge}</span>
+                          <span>{time}</span>
+                          <span>{t.steps_count} steps</span>
+                        </div>
+                      </div>
+                      <ChevronRight className={`h-4 w-4 text-muted-foreground/30 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                    </button>
+                    {isExpanded && taskDetail && (
+                      <div className="border-t border-border p-4 bg-card/50">
+                        <div
+                          className="prose prose-invert prose-sm max-w-none"
+                          dangerouslySetInnerHTML={{
+                            __html: formatMarkdown(taskDetail.result?.output || "No output"),
+                          }}
+                        />
+                        {taskDetail.steps && taskDetail.steps.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-border/50">
+                            <p className="text-[11px] text-muted-foreground font-medium mb-1">Steps ({taskDetail.steps.length})</p>
+                            {taskDetail.steps.map((s: Record<string, unknown>, i: number) => (
+                              <div key={i} className="text-[11px] text-muted-foreground/60 flex items-center gap-2 py-0.5">
+                                <CheckCircle2 className="h-3 w-3 text-green-500/50 shrink-0" />
+                                <span className="font-mono">{String(s.tool || "")}</span>
+                                <span className="truncate">{String(s.result_summary || "").slice(0, 60)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

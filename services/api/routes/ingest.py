@@ -848,11 +848,18 @@ async def _ingest_slack(
             ch_id = ch.get("id", "")
             ch_name = ch.get("name", "")
 
-            # Fetch recent messages FIRST so we can attach previews to channel entity
+            # Join channel first so the bot can read history
             msgs_data = None
             if bot_token:
                 try:
                     async with httpx.AsyncClient() as client:
+                        await client.post(
+                            "https://slack.com/api/conversations.join",
+                            headers={"Authorization": f"Bearer {bot_token}",
+                                     "Content-Type": "application/json"},
+                            json={"channel": ch_id},
+                            timeout=10.0,
+                        )
                         resp = await client.get(
                             "https://slack.com/api/conversations.history",
                             headers={"Authorization": f"Bearer {bot_token}"},
@@ -880,7 +887,7 @@ async def _ingest_slack(
                         entities.append(EntityRecord(
                             id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:msg:{ch_id}:{msg.get('ts', '')}")),
                             type="message",
-                            name=f"Message in #{ch_name}",
+                            name=f"Message in {ch_name}",
                             source="slack",
                             source_id=f"{ch_id}:{msg.get('ts', '')}",
                             properties={
@@ -913,7 +920,7 @@ async def _ingest_slack(
             entities.append(EntityRecord(
                 id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:channel:{ch_id}")),
                 type="channel",
-                name=f"#{ch_name}",
+                name=ch_name,
                 source="slack",
                 source_id=ch_id,
                 properties=ch_props,
@@ -1527,41 +1534,6 @@ async def _do_ingest(
 
         if proposals_added:
             _persist_proposals()
-
-            # Auto-approve high-confidence CRM proposals (domain assertions from
-            # authoritative CRM sources) so the Canon Company Knowledge tab is
-            # not empty on first load.
-            from services.api.routes.canon import (
-                Assertion,
-                _persist_assertions,
-            )
-
-            auto_approved = False
-            for p in list(_proposals):
-                if (
-                    p.status == "pending"
-                    and p.source in CRM_SOURCES
-                    and p.field == "domain"
-                    and p.new_value
-                ):
-                    # Create an assertion from this proposal
-                    _assertions.append(Assertion(
-                        entity_name=p.entity_name,
-                        entity_type=p.entity_type,
-                        field=p.field,
-                        value=p.new_value,
-                        source=p.source,
-                        author="system (auto-approved from CRM)",
-                        status=AssertionStatus.ACTIVE,
-                    ))
-                    p.status = "approved"
-                    p.reviewed_by = "system"
-                    auto_approved = True
-
-            if auto_approved:
-                _persist_assertions()
-                _persist_proposals()
-                logger.info("canon_auto_approved_crm_domains")
 
     except Exception as e:
         if "skip" not in str(e):
