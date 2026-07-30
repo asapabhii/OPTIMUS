@@ -155,38 +155,15 @@ async def _handle_slack_message(event: dict) -> str:
     if not text or event.get("bot_id"):
         return ""
 
-    # Blocklist check
     if _is_blocked(text):
         return "This request cannot be processed for safety reasons."
 
-    # DM pairing check
-    if user_id not in _paired_users:
-        # Generate pairing code
-        code = str(uuid.uuid4())[:6].upper()
-        _paired_users[user_id] = {
-            "external_id": user_id,
-            "platform": "slack",
-            "paired": False,
-            "code": code,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        _persist_paired()
-        return (
-            f"Welcome to Optimus TrustLayer. For security, please verify your identity.\n"
-            f"Your pairing code is: `{code}`\n"
-            f"Enter this code in the Optimus web app under Settings > Gateway Pairing to link your account."
-        )
-
-    if not _paired_users[user_id].get("paired"):
-        return "Your account is not yet paired. Please enter the pairing code in the Optimus web app."
-
     _log_message("slack", "inbound", user_id, text)
 
-    # Run through the agent
+    # Run through the agent directly — no pairing required for now
     try:
         from services.api.routes.work import _run_agent
-        viewer_id = _paired_users[user_id].get("optimus_user_id", "")
-        result, steps = await _run_agent(text, viewer_id=viewer_id)
+        result, _steps = await _run_agent(text)
         _log_message("slack", "outbound", user_id, result[:500])
         return result
     except Exception as e:
@@ -214,8 +191,11 @@ async def slack_events(request: Request) -> Response:
     event = payload.get("event", {})
     event_type = event.get("type", "")
 
-    if event_type == "message" and not event.get("bot_id") and not event.get("subtype"):
-        # Process in background — Slack requires 200 within 3 seconds
+    # Handle both DMs (message) and @mentions (app_mention)
+    is_user_message = event_type == "message" and not event.get("bot_id") and not event.get("subtype")
+    is_mention = event_type == "app_mention"
+
+    if is_user_message or is_mention:
         import asyncio
         asyncio.create_task(_process_slack_event(event))
 

@@ -388,7 +388,56 @@ export function AskSurface() {
   );
 
   const renderMarkdown = (text: string) => {
-    return text
+    // Parse markdown tables first (before other replacements break pipe chars)
+    const lines = text.split("\n");
+    const processed: string[] = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      // Detect table: line has pipes and next line is separator (|---|---|)
+      if (
+        line.includes("|") &&
+        i + 1 < lines.length &&
+        /^\s*\|?\s*[-:]+[-|:\s]+\s*\|?\s*$/.test(lines[i + 1])
+      ) {
+        // Parse header
+        const headerCells = line
+          .split("|")
+          .map((c) => c.trim())
+          .filter((c) => c);
+        let tableHtml =
+          '<div class="overflow-x-auto my-3"><table class="w-full text-sm border-collapse">';
+        tableHtml += "<thead><tr>";
+        for (const cell of headerCells) {
+          tableHtml += `<th class="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border bg-accent/30">${cell}</th>`;
+        }
+        tableHtml += "</tr></thead><tbody>";
+        i += 2; // skip header + separator
+
+        while (i < lines.length && lines[i].includes("|")) {
+          const rowCells = lines[i]
+            .split("|")
+            .map((c) => c.trim())
+            .filter((c) => c);
+          if (rowCells.length === 0) break;
+          tableHtml += "<tr>";
+          for (const cell of rowCells) {
+            tableHtml += `<td class="px-3 py-2 border-b border-border/50 text-foreground">${cell}</td>`;
+          }
+          tableHtml += "</tr>";
+          i++;
+        }
+        tableHtml += "</tbody></table></div>";
+        processed.push(tableHtml);
+      } else {
+        processed.push(line);
+        i++;
+      }
+    }
+
+    return processed
+      .join("\n")
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.*?)\*/g, "<em>$1</em>")
       .replace(

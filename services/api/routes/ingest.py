@@ -5,6 +5,7 @@ Uses LlamaCloud (LlamaParse) for document decomposition when available.
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from datetime import datetime
@@ -814,14 +815,33 @@ async def _ingest_google_calendar(
 async def _ingest_slack(
     secret: str, connection_id: str, limit: int
 ) -> tuple[list[EntityRecord], list[str]]:
-    """Fetch recent messages from Slack channels via Nango proxy."""
+    """Fetch recent messages from Slack channels via Nango proxy or direct bot token."""
     entities: list[EntityRecord] = []
     errors: list[str] = []
 
-    # Fetch channels
-    channels_data = await _nango_proxy_get(secret, connection_id, "slack", "conversations.list", {
-        "limit": str(min(limit, 20)), "types": "public_channel,private_channel",
-    })
+    # Try direct Slack Bot Token first (more reliable than Nango proxy)
+    bot_token = os.getenv("SLACK_BOT_TOKEN", "")
+    channels_data = None
+
+    if bot_token:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://slack.com/api/conversations.list",
+                    headers={"Authorization": f"Bearer {bot_token}"},
+                    params={"limit": str(min(limit, 20)), "types": "public_channel,private_channel"},
+                    timeout=15.0,
+                )
+                if resp.status_code == 200:
+                    channels_data = resp.json()
+        except Exception as e:
+            logger.warning("slack_direct_api_failed", error=str(e))
+
+    # Fallback to Nango proxy
+    if not channels_data or not channels_data.get("ok"):
+        channels_data = await _nango_proxy_get(secret, connection_id, "slack", "conversations.list", {
+            "limit": str(min(limit, 20)), "types": "public_channel,private_channel",
+        })
 
     if channels_data and channels_data.get("ok"):
         for ch in (channels_data.get("channels") or [])[:10]:
@@ -844,9 +864,24 @@ async def _ingest_slack(
             ))
 
             # Fetch recent messages from each channel
-            msgs_data = await _nango_proxy_get(secret, connection_id, "slack", "conversations.history", {
-                "channel": ch_id, "limit": "10",
-            })
+            msgs_data = None
+            if bot_token:
+                try:
+                    async with httpx.AsyncClient() as client:
+                        resp = await client.get(
+                            "https://slack.com/api/conversations.history",
+                            headers={"Authorization": f"Bearer {bot_token}"},
+                            params={"channel": ch_id, "limit": "10"},
+                            timeout=15.0,
+                        )
+                        if resp.status_code == 200:
+                            msgs_data = resp.json()
+                except Exception:
+                    pass
+            if not msgs_data or not msgs_data.get("ok"):
+                msgs_data = await _nango_proxy_get(secret, connection_id, "slack", "conversations.history", {
+                    "channel": ch_id, "limit": "10",
+                })
             if msgs_data and msgs_data.get("ok"):
                 for msg in (msgs_data.get("messages") or []):
                     if msg.get("subtype"):
