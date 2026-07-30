@@ -41,6 +41,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Auto-re-ingest if entity store is empty (e.g., after Railway redeploy)
     asyncio.create_task(_auto_reingest_if_empty())
 
+    # Start Slack DM poller (works even without Event Subscriptions)
+    asyncio.create_task(_start_slack_poller())
+
     yield
     logger.info("shutting_down")
 
@@ -59,6 +62,17 @@ async def _auto_reingest_if_empty():
             logger.info("auto_reingest_complete", entities=len(store))
     except Exception as e:
         logger.warning("auto_reingest_failed", error=str(e))
+
+
+async def _start_slack_poller():
+    """Start the Slack DM poller after a brief delay."""
+    import asyncio
+    await asyncio.sleep(5)
+    try:
+        from services.api.routes.gateway import _start_slack_poller as poller
+        await poller()
+    except Exception as e:
+        logger.warning("slack_poller_start_failed", error=str(e))
 
 
 def create_app() -> FastAPI:

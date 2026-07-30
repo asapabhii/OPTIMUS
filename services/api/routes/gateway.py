@@ -286,9 +286,125 @@ async def slack_status() -> dict:
     config = _get_slack_config()
     return {
         "enabled": config.enabled,
-        "paired_users": len([u for u in _paired_users.values() if u.get("paired")]),
+        "poller_running": _slack_poller_running,
         "total_messages": len([m for m in _gateway_log if m["platform"] == "slack"]),
     }
+
+
+# ── Slack DM Poller (fallback when Event Subscriptions aren't delivering) ──
+
+_slack_poller_running = False
+_slack_last_ts: dict[str, str] = {}
+
+
+async def _start_slack_poller():
+    """Poll Slack DMs for new messages and respond. Runs as background task."""
+    global _slack_poller_running
+    if _slack_poller_running:
+        return
+    _slack_poller_running = True
+    logger.info("slack_poller_started")
+
+    config = _get_slack_config()
+    if not config.bot_token:
+        _slack_poller_running = False
+        return
+
+    bot_user_id = ""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://slack.com/api/auth.test",
+                headers={"Authorization": f"Bearer {config.bot_token}"},
+                timeout=10.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                bot_user_id = data.get("user_id", "")
+    except Exception:
+        pass
+
+    while True:
+        try:
+            await asyncio.sleep(5)
+
+            async with httpx.AsyncClient() as client:
+                # List DM channels
+                resp = await client.get(
+                    "https://slack.com/api/conversations.list",
+                    headers={"Authorization": f"Bearer {config.bot_token}"},
+                    params={"types": "im", "limit": "20"},
+                    timeout=10.0,
+                )
+                if resp.status_code != 200:
+                    continue
+                channels_data = resp.json()
+                if not channels_data.get("ok"):
+                    continue
+
+                for ch in channels_data.get("channels", []):
+                    ch_id = ch.get("id", "")
+                    if not ch_id:
+                        continue
+
+                    # Get latest messages since last check
+                    params: dict[str, str] = {"channel": ch_id, "limit": "5"}
+                    last_ts = _slack_last_ts.get(ch_id, "")
+                    if last_ts:
+                        params["oldest"] = last_ts
+
+                    resp = await client.get(
+                        "https://slack.com/api/conversations.history",
+                        headers={"Authorization": f"Bearer {config.bot_token}"},
+                        params=params,
+                        timeout=10.0,
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    msgs_data = resp.json()
+                    if not msgs_data.get("ok"):
+                        continue
+
+                    messages = msgs_data.get("messages", [])
+                    if not messages:
+                        continue
+
+                    # Update last seen timestamp
+                    newest_ts = max(m.get("ts", "0") for m in messages)
+                    _slack_last_ts[ch_id] = newest_ts
+
+                    # Skip if this is the first poll (don't reply to old messages)
+                    if not last_ts:
+                        continue
+
+                    # Process new user messages (not from bot)
+                    for msg in messages:
+                        if msg.get("bot_id") or msg.get("subtype"):
+                            continue
+                        if msg.get("user") == bot_user_id:
+                            continue
+                        user_text = msg.get("text", "").strip()
+                        if not user_text:
+                            continue
+
+                        # Respond
+                        _log_message("slack", "inbound", msg.get("user", ""), user_text)
+                        try:
+                            from services.api.routes.work import _run_agent
+                            result, _ = await _run_agent(user_text)
+                            if result:
+                                await _slack_send_message(ch_id, result)
+                                _log_message("slack", "outbound", msg.get("user", ""), result[:500])
+                        except Exception as e:
+                            logger.error("slack_poller_agent_error", error=str(e))
+                            await _slack_send_message(ch_id, "Sorry, I encountered an error.")
+
+        except Exception as e:
+            logger.warning("slack_poller_error", error=str(e))
+            await asyncio.sleep(10)
+
+
+import asyncio  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════════════

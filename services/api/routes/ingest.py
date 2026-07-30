@@ -829,7 +829,7 @@ async def _ingest_slack(
                 resp = await client.get(
                     "https://slack.com/api/conversations.list",
                     headers={"Authorization": f"Bearer {bot_token}"},
-                    params={"limit": str(min(limit, 20)), "types": "public_channel,private_channel"},
+                    params={"limit": str(min(limit, 20)), "types": "public_channel"},
                     timeout=15.0,
                 )
                 if resp.status_code == 200:
@@ -840,7 +840,7 @@ async def _ingest_slack(
     # Fallback to Nango proxy
     if not channels_data or not channels_data.get("ok"):
         channels_data = await _nango_proxy_get(secret, connection_id, "slack", "conversations.list", {
-            "limit": str(min(limit, 20)), "types": "public_channel,private_channel",
+            "limit": str(min(limit, 20)), "types": "public_channel",
         })
 
     if channels_data and channels_data.get("ok"):
