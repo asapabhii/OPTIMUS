@@ -300,6 +300,7 @@ def _build_data_analytics(store: list[EntityRecord]) -> str:
             mime = d.properties.get("mime_type", "")
             owner = d.properties.get("owner", "")
             modified = d.properties.get("modified", "")[:10]
+            content = d.properties.get("content", "")
             extras = []
             if mime:
                 extras.append(mime.split("/")[-1])
@@ -309,6 +310,8 @@ def _build_data_analytics(store: list[EntityRecord]) -> str:
                 extras.append(modified)
             detail = f" ({', '.join(extras)})" if extras else ""
             lines.append(f"  {d.name}{detail}")
+            if content:
+                lines.append(f"    Content: {content[:800]}")
 
     # Spreadsheet analytics
     sheets = by_type.get("spreadsheet", [])
@@ -317,6 +320,7 @@ def _build_data_analytics(store: list[EntityRecord]) -> str:
         for s in sheets[:10]:
             owner = s.properties.get("owner", "")
             modified = s.properties.get("modified", "")[:10]
+            content = s.properties.get("content", "")
             extras = []
             if owner:
                 extras.append(f"by {owner}")
@@ -324,6 +328,8 @@ def _build_data_analytics(store: list[EntityRecord]) -> str:
                 extras.append(modified)
             detail = f" ({', '.join(extras)})" if extras else ""
             lines.append(f"  {s.name}{detail}")
+            if content:
+                lines.append(f"    Data:\n    {content[:1000]}")
 
     # Calendar / event analytics
     events = by_type.get("event", [])
@@ -403,7 +409,8 @@ def _build_relevant_context(
         "deal": {"deal", "deals", "pipeline", "revenue", "sales", "opportunity", "opportunities"},
         "person": {"contact", "contacts", "people", "person", "who"},
         "company": {"company", "companies", "organization", "org", "account", "accounts"},
-        "email": {"email", "emails", "mail", "inbox", "message", "messages", "sent"},
+        "email": {"email", "emails", "mail", "inbox", "sent"},
+        "message": {"message", "messages", "slack message", "slack messages"},
         "document": {"document", "documents", "doc", "docs", "file", "files", "page", "pages", "sheet", "sheets", "spreadsheet", "notion", "drive"},
         "channel": {"slack", "channel", "channels"},
     }
@@ -437,12 +444,15 @@ def _build_relevant_context(
     for entity in matched[:30]:
         props_str = ""
         if entity.properties:
+            content_val = entity.properties.get("content", "")
             top_props = {
-                k: str(v)[:150]
-                for k, v in list(entity.properties.items())[:8]
-                if not k.startswith("_")
+                k: str(v)[:200]
+                for k, v in list(entity.properties.items())[:10]
+                if not k.startswith("_") and k != "content"
             }
             props_str = f" | {top_props}" if top_props else ""
+            if content_val:
+                props_str += f"\n    Content: {str(content_val)[:600]}"
 
         context_lines.append(
             f"[{entity.source}] {entity.type.title()}: {entity.name}{props_str}"
@@ -578,7 +588,7 @@ async def ask_question(request: AskRequest) -> AnswerEnvelope:
     start = time.time()
 
     openai_key = settings.openai_api_key.get_secret_value()
-    store = get_entity_store()
+    store = get_entity_store(viewer_id=str(request.viewer_id))
     connected_sources = await _get_connected_sources(settings)
 
     if not openai_key:

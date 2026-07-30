@@ -18,7 +18,7 @@ import {
   MessageSquare,
   Briefcase,
 } from "lucide-react";
-import { api } from "../../api/client";
+import { api, getUserId } from "../../api/client";
 
 interface Integration {
   provider_type: string;
@@ -119,7 +119,7 @@ export function OnboardingFlow() {
       const resp = await api.get<ConnectedSource[]>(
         "/api/v1/connectors/connected",
         {
-          params: { viewer_id: "00000000-0000-0000-0000-000000000001" },
+          params: { viewer_id: getUserId() },
         }
       );
       setConnectedSources(resp.data);
@@ -150,7 +150,7 @@ export function OnboardingFlow() {
       const sessionResp = await api.post<{ token?: string; error?: string }>(
         "/api/v1/connectors/session",
         null,
-        { params: { viewer_id: "viewer-001" } }
+        { params: { viewer_id: getUserId() } }
       );
 
       if (sessionResp.data.error || !sessionResp.data.token) {
@@ -210,7 +210,8 @@ export function OnboardingFlow() {
     try {
       const resp = await api.post<IngestResult[] | IngestResult>(
         "/api/v1/ingest/all",
-        {}
+        null,
+        { params: { viewer_id: getUserId() } }
       );
       const results = Array.isArray(resp.data) ? resp.data : [resp.data];
       setIngestResults(results);

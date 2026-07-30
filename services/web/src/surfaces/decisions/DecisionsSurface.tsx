@@ -11,7 +11,7 @@ import {
   BarChart3,
   Info,
 } from "lucide-react";
-import { api } from "../../api/client";
+import { api, getUserId } from "../../api/client";
 
 interface ERDecision {
   decision_id: string;
@@ -135,7 +135,7 @@ export function DecisionsSurface() {
     setLoading(true);
     try {
       const params: Record<string, string> = {
-        viewer_id: "00000000-0000-0000-0000-000000000001",
+        viewer_id: getUserId(),
       };
       if (filter !== "all") params.status = filter;
 

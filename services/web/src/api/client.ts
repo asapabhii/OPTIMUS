@@ -99,8 +99,12 @@ export function logout() {
   localStorage.removeItem("username");
   localStorage.removeItem("user_id");
   localStorage.removeItem("user_role");
+  localStorage.removeItem("company_domain");
+  localStorage.removeItem(SESSIONS_KEY);
   window.location.href = "/login";
 }
+
+const SESSIONS_KEY = "optimus_chat_sessions";
 
 export function getUsername(): string {
   return localStorage.getItem("username") || "";
@@ -112,4 +116,8 @@ export function getUserId(): string {
 
 export function getUserRole(): string {
   return localStorage.getItem("user_role") || "user";
+}
+
+export function getCompanyDomain(): string {
+  return localStorage.getItem("company_domain") || "";
 }

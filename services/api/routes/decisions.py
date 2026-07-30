@@ -169,9 +169,9 @@ def _compare_entities(name_a: str, name_b: str, type_a: str, props_a: dict, prop
     return round(final_score, 4), evidence
 
 
-def _detect_potential_duplicates() -> list[ERDecision]:
+def _detect_potential_duplicates(viewer_id: str = "") -> list[ERDecision]:
     """Detect potential duplicate entities using the tuned comparison."""
-    store = get_entity_store()
+    store = get_entity_store(viewer_id=viewer_id)
     if len(store) < 2:
         return []
 
@@ -224,11 +224,11 @@ def _detect_potential_duplicates() -> list[ERDecision]:
 
 @router.get("/decisions", response_model=DecisionQueue)
 async def list_decisions(
-    viewer_id: uuid.UUID = uuid.UUID("00000000-0000-0000-0000-000000000001"),
+    viewer_id: str = "",
     status: str | None = None,
 ) -> DecisionQueue:
     """List entity resolution decisions — detected from real ingested data."""
-    detected = _detect_potential_duplicates()
+    detected = _detect_potential_duplicates(viewer_id=viewer_id)
     # Only include user-resolved decisions from store, not auto-detected ones
     user_resolved = [d for d in _decision_store if d.status in ("merged", "rejected")]
     all_decisions = detected + user_resolved

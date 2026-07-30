@@ -214,8 +214,8 @@ AGENT_TOOLS = [
 
 # ── Tool implementations ───────────────────────────────────────────────
 
-def _exec_search_entities(args: dict) -> dict:
-    store = get_entity_store()
+def _exec_search_entities(args: dict, viewer_id: str = "") -> dict:
+    store = get_entity_store(viewer_id=viewer_id)
     query = args.get("query", "").lower().strip()
     etype = args.get("entity_type", "")
     source = args.get("source", "")
@@ -247,8 +247,8 @@ def _exec_search_entities(args: dict) -> dict:
     return {"count": len(results), "entities": results}
 
 
-def _exec_get_entity_details(args: dict) -> dict:
-    store = get_entity_store()
+def _exec_get_entity_details(args: dict, viewer_id: str = "") -> dict:
+    store = get_entity_store(viewer_id=viewer_id)
     eid = args.get("entity_id", "")
     ename = args.get("entity_name", "").lower()
 
@@ -262,8 +262,8 @@ def _exec_get_entity_details(args: dict) -> dict:
     return {"error": "Entity not found"}
 
 
-def _exec_analyze_data(args: dict) -> dict:
-    store = get_entity_store()
+def _exec_analyze_data(args: dict, viewer_id: str = "") -> dict:
+    store = get_entity_store(viewer_id=viewer_id)
     atype = args.get("analysis_type", "count")
     etype = args.get("entity_type", "")
     field = args.get("field", "")
@@ -306,12 +306,12 @@ def _exec_analyze_data(args: dict) -> dict:
     return {"error": f"Unknown analysis type: {atype}"}
 
 
-def _exec_execute_code(args: dict) -> dict:
+def _exec_execute_code(args: dict, viewer_id: str = "") -> dict:
     """Execute Python code in a sandboxed subprocess."""
     code = args.get("code", "")
     description = args.get("description", "")
 
-    store = get_entity_store()
+    store = get_entity_store(viewer_id=viewer_id)
     entities_data = [e.model_dump() for e in store[:200]]
 
     # Create a temp script with the entity data injected
@@ -352,7 +352,7 @@ entities = json.loads('''{json.dumps(entities_data)}''')
         return {"success": False, "error": str(e)}
 
 
-def _exec_get_canon_facts(args: dict) -> dict:
+def _exec_get_canon_facts(args: dict, viewer_id: str = "") -> dict:
     try:
         from services.api.routes.canon import _assertions, AssertionStatus
         facts = [a for a in _assertions if a.status == AssertionStatus.ACTIVE]
@@ -373,7 +373,7 @@ def _exec_get_canon_facts(args: dict) -> dict:
         return {"facts": []}
 
 
-def _exec_propose_canon_fact(args: dict) -> dict:
+def _exec_propose_canon_fact(args: dict, viewer_id: str = "") -> dict:
     try:
         from services.api.routes.canon import (
             _proposals, Proposal, ProposalSource, StakeLevel, _persist_proposals,
@@ -420,7 +420,7 @@ async def _run_agent(
     if not openai_key:
         return "OpenAI API key not configured.", []
 
-    store = get_entity_store()
+    store = get_entity_store(viewer_id=viewer_id)
     store_summary = f"{len(store)} entities across {len(set(e.source for e in store))} sources"
 
     system_prompt = (
@@ -481,7 +481,7 @@ async def _run_agent(
 
                 handler = TOOL_HANDLERS.get(fn_name)
                 if handler:
-                    result = handler(fn_args)
+                    result = handler(fn_args, viewer_id=viewer_id)
                 else:
                     result = {"error": f"Unknown tool: {fn_name}"}
 
@@ -544,12 +544,12 @@ def _persist_tasks():
     _save_json(TASKS_FILE, [t.model_dump() for t in _work_tasks])
 
 
-async def _triage_brain_dump(brain_dump: str) -> list[Workstream]:
+async def _triage_brain_dump(brain_dump: str, viewer_id: str = "") -> list[Workstream]:
     """Use the LLM to decompose a brain dump into workstreams."""
     settings = get_settings()
     openai_key = settings.openai_api_key.get_secret_value()
 
-    store = get_entity_store()
+    store = get_entity_store(viewer_id=viewer_id)
     data_context = f"Available data: {len(store)} entities from {len(set(e.source for e in store))} sources."
 
     prompt = f"""You are a task decomposition engine. Break this brain dump into independent workstreams.
@@ -762,7 +762,7 @@ async def execute_task(request: WorkRequest) -> WorkResult:
 @router.post("/work/crew/plan")
 async def crew_plan(request: CrewRequest) -> dict:
     """Decompose a brain dump into workstreams (confirm-before-dispatch)."""
-    workstreams = await _triage_brain_dump(request.brain_dump)
+    workstreams = await _triage_brain_dump(request.brain_dump, viewer_id=request.viewer_id)
 
     plan = CrewPlan(
         raw_input=request.brain_dump,

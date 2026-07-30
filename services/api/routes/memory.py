@@ -194,3 +194,46 @@ async def clear_memories(user_id: str = "default") -> dict:
     _memory_store[user_id] = []
     _save_to_disk()
     return {"cleared": count}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Server-side chat history persistence
+# ═══════════════════════════════════════════════════════════════════════
+
+CHATS_FILE = "data/chat_history.json"
+
+_chat_store: dict[str, list[dict]] = {}
+
+def _load_chats():
+    global _chat_store
+    try:
+        with open(CHATS_FILE, "r") as f:
+            _chat_store = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        _chat_store = {}
+
+def _save_chats():
+    import os
+    os.makedirs("data", exist_ok=True)
+    with open(CHATS_FILE, "w") as f:
+        json.dump(_chat_store, f)
+
+_load_chats()
+
+
+@router.get("/chats")
+async def list_chats(user_id: str = "default") -> list[dict]:
+    sessions = _chat_store.get(user_id, [])
+    return sorted(sessions, key=lambda s: s.get("updatedAt", 0), reverse=True)
+
+
+class ChatSyncRequest(BaseModel):
+    user_id: str = "default"
+    sessions: list[dict] = []
+
+
+@router.post("/chats")
+async def save_chats(req: ChatSyncRequest) -> dict:
+    _chat_store[req.user_id] = req.sessions
+    _save_chats()
+    return {"saved": len(req.sessions)}

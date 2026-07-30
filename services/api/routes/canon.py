@@ -340,18 +340,23 @@ class ProposalQueue(BaseModel):
 
 
 @router.get("/canon/proposals", response_model=ProposalQueue)
-async def list_proposals(status: str = "") -> ProposalQueue:
-    """List all proposals."""
+async def list_proposals(status: str = "", company_domain: str = "") -> ProposalQueue:
+    """List proposals — filtered by company domain if provided."""
     filtered = _proposals
+    if company_domain:
+        filtered = [
+            p for p in filtered
+            if not p.company_domain or p.company_domain == company_domain
+        ]
     if status:
         filtered = [p for p in filtered if p.status == status]
 
     return ProposalQueue(
         proposals=sorted(filtered, key=lambda p: p.created_at, reverse=True),
-        total=len(_proposals),
-        pending=sum(1 for p in _proposals if p.status == ProposalStatus.PENDING),
-        approved=sum(1 for p in _proposals if p.status == ProposalStatus.APPROVED),
-        rejected=sum(1 for p in _proposals if p.status == ProposalStatus.REJECTED),
+        total=len(filtered),
+        pending=sum(1 for p in filtered if p.status == ProposalStatus.PENDING),
+        approved=sum(1 for p in filtered if p.status == ProposalStatus.APPROVED),
+        rejected=sum(1 for p in filtered if p.status == ProposalStatus.REJECTED),
     )
 
 

@@ -76,34 +76,27 @@ function loadSessions(): ChatSession[] {
       const sessions = JSON.parse(raw) as ChatSession[];
       return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
     }
-  } catch {
-    // Migrate from old single-history format
-    try {
-      const old = localStorage.getItem("optimus_chat_history");
-      if (old) {
-        const messages = JSON.parse(old) as QAPair[];
-        if (messages.length > 0) {
-          const session: ChatSession = {
-            id: generateId(),
-            title: messages[0].question.slice(0, 40),
-            messages,
-            createdAt: messages[0].timestamp,
-            updatedAt: messages[messages.length - 1].timestamp,
-          };
-          localStorage.removeItem("optimus_chat_history");
-          return [session];
-        }
-      }
-    } catch { /* ignore */ }
-  }
+  } catch { /* ignore */ }
+  return [];
+}
+
+async function loadSessionsFromServer(): Promise<ChatSession[]> {
+  try {
+    const userId = localStorage.getItem("user_id") || "default";
+    const resp = await api.get<ChatSession[]>("/api/v1/chats", { params: { user_id: userId } });
+    if (resp.data && resp.data.length > 0) {
+      return resp.data;
+    }
+  } catch { /* ignore */ }
   return [];
 }
 
 function saveSessions(sessions: ChatSession[]) {
   try {
-    // Keep last 50 sessions
     const trimmed = sessions.slice(0, 50);
     localStorage.setItem(SESSIONS_KEY, JSON.stringify(trimmed));
+    const userId = localStorage.getItem("user_id") || "default";
+    api.post("/api/v1/chats", { user_id: userId, sessions: trimmed }).catch(() => {});
   } catch { /* full */ }
 }
 
@@ -145,6 +138,22 @@ export function AskSurface() {
       behavior: "smooth",
     });
   }, [history.length, loading]);
+
+  useEffect(() => {
+    // On mount, merge server-side chat history with local
+    loadSessionsFromServer().then((serverSessions) => {
+      if (serverSessions.length > 0) {
+        setSessions((local) => {
+          const localIds = new Set(local.map((s) => s.id));
+          const merged = [...local];
+          for (const ss of serverSessions) {
+            if (!localIds.has(ss.id)) merged.push(ss);
+          }
+          return merged.sort((a, b) => b.updatedAt - a.updatedAt);
+        });
+      }
+    });
+  }, []);
 
   useEffect(() => {
     saveSessions(sessions);
@@ -386,12 +395,16 @@ export function AskSurface() {
         /`(.*?)`/g,
         '<code class="px-1.5 py-0.5 rounded bg-white/5 text-[#a5b4fc] text-xs font-mono">$1</code>'
       )
+      .replace(/^#{4,}\s+(.*$)/gm, '<div class="text-sm font-semibold mt-3 mb-1">$1</div>')
+      .replace(/^###\s+(.*$)/gm, '<div class="text-sm font-semibold mt-3 mb-1">$1</div>')
+      .replace(/^##\s+(.*$)/gm, '<div class="text-base font-bold mt-4 mb-1.5">$1</div>')
+      .replace(/^#\s+(.*$)/gm, '<div class="text-lg font-bold mt-4 mb-2">$1</div>')
       .replace(
         /^[-] (.*)/gm,
         '<div class="flex gap-2 items-start my-0.5"><span class="w-1 h-1 rounded-full bg-current mt-2 shrink-0 opacity-40"></span><span>$1</span></div>'
       )
       .replace(
-        /^\d+\. (.*)/gm,
+        /^\d+\.\s+(.*)/gm,
         '<div class="flex gap-2 items-start my-0.5"><span class="opacity-40 font-medium">&#8250;</span><span>$1</span></div>'
       )
       .replace(/\n\n/g, '<div class="h-3"></div>')

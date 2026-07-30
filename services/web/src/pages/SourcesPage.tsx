@@ -16,7 +16,7 @@ import {
   Briefcase,
   Clock,
 } from "lucide-react";
-import { api } from "../api/client";
+import { api, getUserId } from "../api/client";
 
 interface ConnectedSource {
   id: string;
@@ -71,7 +71,7 @@ export function SourcesPage() {
     try {
       const [connResp, availResp] = await Promise.all([
         api.get<ConnectedSource[]>("/api/v1/connectors/connected", {
-          params: { viewer_id: "00000000-0000-0000-0000-000000000001" },
+          params: { viewer_id: getUserId() },
         }),
         api.get<AvailableIntegration[]>("/api/v1/connectors/available"),
       ]);
@@ -129,7 +129,7 @@ export function SourcesPage() {
       const sessionResp = await api.post<{ token?: string; error?: string }>(
         "/api/v1/connectors/session",
         null,
-        { params: { viewer_id: "viewer-001" } }
+        { params: { viewer_id: getUserId() } }
       );
 
       if (!sessionResp.data.token) {
@@ -176,7 +176,9 @@ export function SourcesPage() {
     if (!silent) setIngestMsg("");
 
     try {
-      const resp = await api.post<any>("/api/v1/ingest/all", {});
+      const resp = await api.post<any>("/api/v1/ingest/all", null, {
+        params: { viewer_id: getUserId() },
+      });
       const results = Array.isArray(resp.data) ? resp.data : [resp.data];
       const total = results.reduce(
         (s: number, r: any) => s + (r.records_fetched || 0),

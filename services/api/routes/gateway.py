@@ -116,7 +116,7 @@ def _verify_slack_signature(request_body: bytes, timestamp: str, signature: str)
         return True  # Skip verification in dev
 
     basestring = f"v0:{timestamp}:{request_body.decode()}"
-    computed = "v0=" + hmac.new(
+    computed = "v0=" + hmac.HMAC(
         config.signing_secret.encode(), basestring.encode(), hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(computed, signature)
@@ -214,7 +214,17 @@ async def slack_events(request: Request) -> Response:
     event = payload.get("event", {})
     event_type = event.get("type", "")
 
-    if event_type == "message" and not event.get("bot_id"):
+    if event_type == "message" and not event.get("bot_id") and not event.get("subtype"):
+        # Process in background — Slack requires 200 within 3 seconds
+        import asyncio
+        asyncio.create_task(_process_slack_event(event))
+
+    return Response(content="OK", status_code=200)
+
+
+async def _process_slack_event(event: dict):
+    """Process Slack event in the background."""
+    try:
         response_text = await _handle_slack_message(event)
         if response_text:
             await _slack_send_message(
@@ -222,8 +232,8 @@ async def slack_events(request: Request) -> Response:
                 response_text,
                 thread_ts=event.get("ts", ""),
             )
-
-    return Response(content="OK", status_code=200)
+    except Exception as e:
+        logger.error("slack_event_processing_failed", error=str(e))
 
 
 @router.get("/gateway/slack/status")

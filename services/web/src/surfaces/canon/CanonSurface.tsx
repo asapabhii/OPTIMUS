@@ -15,7 +15,7 @@ import {
   Trash2,
   Database,
 } from "lucide-react";
-import { api } from "../../api/client";
+import { api, getCompanyDomain, getUserId } from "../../api/client";
 
 interface Assertion {
   id: string;
@@ -142,9 +142,10 @@ export function CanonSurface() {
   const fetchAll = async () => {
     setLoading(true);
     try {
+      const domain = getCompanyDomain();
       const [canonRes, proposalRes, sorRes] = await Promise.all([
-        api.get<CanonOverview>("/api/v1/canon"),
-        api.get<ProposalQueue>("/api/v1/canon/proposals"),
+        api.get<CanonOverview>("/api/v1/canon", { params: { company_domain: domain } }),
+        api.get<ProposalQueue>("/api/v1/canon/proposals", { params: { company_domain: domain } }),
         api.get<SoRDeclaration[]>("/api/v1/canon/sor"),
       ]);
       setCanon(canonRes.data);
@@ -166,7 +167,8 @@ export function CanonSurface() {
     try {
       await api.post("/api/v1/canon/assertions", {
         ...form,
-        author: "admin",
+        author: getUserId(),
+        company_domain: getCompanyDomain(),
       });
       setForm({ entity_name: "", entity_type: "company", field: "", value: "", source: "", citation: "", stake_level: "medium" });
       setShowAdd(false);
@@ -182,8 +184,9 @@ export function CanonSurface() {
       await api.post("/api/v1/canon/proposals", {
         ...proposeForm,
         action: "create",
-        proposed_by: "user",
+        proposed_by: getUserId(),
         proposal_source: "user",
+        company_domain: getCompanyDomain(),
       });
       setProposeForm({ entity_name: "", entity_type: "company", field: "", new_value: "", source: "", reason: "" });
       setShowPropose(false);

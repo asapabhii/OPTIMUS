@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from fastapi import APIRouter
@@ -31,14 +30,14 @@ class EntityGraph(BaseModel):
 
 @router.get("/browse/entities", response_model=EntityGraph)
 async def list_entities(
-    viewer_id: uuid.UUID = uuid.UUID("00000000-0000-0000-0000-000000000001"),
+    viewer_id: str = "",
     entity_type: str | None = None,
     search: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> EntityGraph:
-    """List entities from ingested data — no fake data."""
-    store = get_entity_store()
+    """List entities from ingested data — scoped to the requesting user."""
+    store = get_entity_store(viewer_id=viewer_id)
 
     filtered = store
     if entity_type:
@@ -73,9 +72,9 @@ async def list_entities(
 
 
 @router.get("/browse/entities/{entity_id}")
-async def get_entity_detail(entity_id: str) -> dict:
+async def get_entity_detail(entity_id: str, viewer_id: str = "") -> dict:
     """Get detail for a specific entity."""
-    store = get_entity_store()
+    store = get_entity_store(viewer_id=viewer_id)
     matches = [e for e in store if e.id == entity_id]
 
     if not matches:

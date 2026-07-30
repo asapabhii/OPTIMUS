@@ -39,6 +39,7 @@ class EntityRecord(BaseModel):
     properties: dict[str, Any]
     fetched_at: str
     connection_id: str
+    viewer_id: str = ""
 
 
 # In-memory store with disk persistence — production uses Postgres
@@ -81,8 +82,11 @@ def _persist_entity_store() -> None:
 _load_entity_store()
 
 
-def get_entity_store() -> list[EntityRecord]:
-    return _entity_store
+def get_entity_store(viewer_id: str = "") -> list[EntityRecord]:
+    """Return entities. If viewer_id is provided, only return that user's entities."""
+    if not viewer_id:
+        return _entity_store
+    return [e for e in _entity_store if e.viewer_id == viewer_id or e.viewer_id == ""]
 
 
 async def _nango_proxy_get(
@@ -528,17 +532,48 @@ async def _ingest_google_sheets(
                 "displayName", f["owners"][0].get("emailAddress", "")
             )
 
+        # Fetch actual spreadsheet cell content via Sheets API through Nango proxy
+        sheet_content = ""
+        try:
+            # Use google-sheet integration if available, otherwise try drive
+            async with httpx.AsyncClient() as sc:
+                sheet_resp = await sc.get(
+                    f"https://api.nango.dev/proxy/v4/spreadsheets/{f['id']}/values/A1:Z50",
+                    headers={
+                        "Authorization": f"Bearer {nango_secret}",
+                        "Connection-Id": connection_id,
+                        "Provider-Config-Key": "google-sheet",
+                        "Base-Url-Override": "https://sheets.googleapis.com",
+                    },
+                    timeout=15.0,
+                )
+                if sheet_resp.status_code == 200:
+                    sd = sheet_resp.json()
+                    if "values" in sd:
+                        rows = sd["values"]
+                        header = rows[0] if rows else []
+                        content_lines = [" | ".join(str(c) for c in header)]
+                        for row in rows[1:20]:
+                            content_lines.append(" | ".join(str(c) for c in row))
+                        sheet_content = "\n".join(content_lines)[:3000]
+        except Exception:
+            pass
+
+        props: dict[str, Any] = {
+            "modified": f.get("modifiedTime", ""),
+            "owner": owner,
+            "link": f.get("webViewLink", ""),
+        }
+        if sheet_content:
+            props["content"] = sheet_content
+
         entity = EntityRecord(
             id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"gsheet:{f['id']}")),
             type="spreadsheet",
             name=f.get("name", "Untitled"),
             source="google-sheet",
             source_id=f["id"],
-            properties={
-                "modified": f.get("modifiedTime", ""),
-                "owner": owner,
-                "link": f.get("webViewLink", ""),
-            },
+            properties=props,
             fetched_at=datetime.utcnow().isoformat(),
             connection_id=connection_id,
         )
@@ -795,7 +830,7 @@ async def _ingest_slack(
 
             entities.append(EntityRecord(
                 id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:channel:{ch_id}")),
-                type="document",
+                type="channel",
                 name=f"#{ch_name}",
                 source="slack",
                 source_id=ch_id,
@@ -810,23 +845,23 @@ async def _ingest_slack(
 
             # Fetch recent messages from each channel
             msgs_data = await _nango_proxy_get(secret, connection_id, "slack", "conversations.history", {
-                "channel": ch_id, "limit": "5",
+                "channel": ch_id, "limit": "10",
             })
             if msgs_data and msgs_data.get("ok"):
                 for msg in (msgs_data.get("messages") or []):
                     if msg.get("subtype"):
                         continue
-                    text = msg.get("text", "")[:200]
+                    text = msg.get("text", "")[:500]
                     if text:
                         entities.append(EntityRecord(
                             id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:msg:{ch_id}:{msg.get('ts', '')}")),
-                            type="email",
+                            type="message",
                             name=f"Message in #{ch_name}",
                             source="slack",
                             source_id=f"{ch_id}:{msg.get('ts', '')}",
                             properties={
                                 "from": msg.get("user", ""),
-                                "snippet": text,
+                                "content": text,
                                 "channel": ch_name,
                                 "date": msg.get("ts", ""),
                             },
@@ -874,18 +909,49 @@ async def _ingest_notion(
                     if not title:
                         title = f"Notion {obj_type} {item.get('id', '')[:8]}"
 
+                    # Fetch page content blocks
+                    content_text = ""
+                    try:
+                        blocks_resp = await client.get(
+                            f"https://api.nango.dev/proxy/v1/blocks/{item['id']}/children",
+                            headers={
+                                "Authorization": f"Bearer {secret}",
+                                "Connection-Id": connection_id,
+                                "Provider-Config-Key": "notion",
+                            },
+                            timeout=15.0,
+                        )
+                        if blocks_resp.status_code == 200:
+                            blocks_data = blocks_resp.json()
+                            text_parts = []
+                            for block in blocks_data.get("results", []):
+                                btype = block.get("type", "")
+                                block_content = block.get(btype, {})
+                                if isinstance(block_content, dict):
+                                    rich_text = block_content.get("rich_text", [])
+                                    if isinstance(rich_text, list):
+                                        for rt in rich_text:
+                                            text_parts.append(rt.get("plain_text", ""))
+                            content_text = " ".join(text_parts)[:2000]
+                    except Exception:
+                        pass
+
+                    props: dict[str, Any] = {
+                        "type": obj_type,
+                        "url": item.get("url", ""),
+                        "last_edited": item.get("last_edited_time", ""),
+                        "created": item.get("created_time", ""),
+                    }
+                    if content_text:
+                        props["content"] = content_text
+
                     entities.append(EntityRecord(
                         id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"notion:{item['id']}")),
                         type="document",
                         name=title,
                         source="notion",
                         source_id=item["id"],
-                        properties={
-                            "type": obj_type,
-                            "url": item.get("url", ""),
-                            "last_edited": item.get("last_edited_time", ""),
-                            "created": item.get("created_time", ""),
-                        },
+                        properties=props,
                         fetched_at=datetime.utcnow().isoformat(),
                         connection_id=connection_id,
                     ))
@@ -1024,7 +1090,7 @@ async def clear_entity_store() -> dict:
 
 
 @router.post("/ingest/all")
-async def ingest_all_connections() -> list[IngestResult]:
+async def ingest_all_connections(viewer_id: str = "") -> list[IngestResult]:
     """Trigger ingestion from ALL connected Nango sources."""
     settings = get_settings()
     secret = settings.nango_secret_key.get_secret_value()
@@ -1058,20 +1124,20 @@ async def ingest_all_connections() -> list[IngestResult]:
     for provider, conn in seen.items():
         cid = conn.get("connection_id", "")
         if cid:
-            result = await _do_ingest(cid, provider_hint=provider)
+            result = await _do_ingest(cid, provider_hint=provider, viewer_id=viewer_id)
             results.append(result)
 
     # Also ingest HubSpot if token is configured (direct, not via Nango)
     hs_token = settings.hubspot_access_token.get_secret_value()
     if hs_token:
-        hs_result = await ingest_hubspot_direct()
+        hs_result = await ingest_hubspot_direct(viewer_id=viewer_id)
         results.append(hs_result)
 
     return results
 
 
 @router.post("/ingest/hubspot", response_model=IngestResult)
-async def ingest_hubspot_direct() -> IngestResult:
+async def ingest_hubspot_direct(viewer_id: str = "") -> IngestResult:
     """Ingest data directly from HubSpot using the Private App token."""
     settings = get_settings()
     token = settings.hubspot_access_token.get_secret_value()
@@ -1088,12 +1154,17 @@ async def ingest_hubspot_direct() -> IngestResult:
     limit = settings.fast_path_default_n
     entities, errors = await _ingest_hubspot("", "hubspot-direct", limit)
 
-    existing_ids = {(e.source, e.source_id) for e in _entity_store}
+    # Tag entities with viewer_id
+    if viewer_id:
+        for entity in entities:
+            entity.viewer_id = viewer_id
+
+    existing_ids = {(e.source, e.source_id, e.viewer_id) for e in _entity_store}
     new_count = 0
     for entity in entities:
-        if (entity.source, entity.source_id) not in existing_ids:
+        if (entity.source, entity.source_id, entity.viewer_id) not in existing_ids:
             _entity_store.append(entity)
-            existing_ids.add((entity.source, entity.source_id))
+            existing_ids.add((entity.source, entity.source_id, entity.viewer_id))
             new_count += 1
 
     if new_count > 0:
@@ -1173,12 +1244,12 @@ async def ingest_hubspot_direct() -> IngestResult:
 
 
 @router.post("/ingest/{connection_id}", response_model=IngestResult)
-async def ingest_from_connection(connection_id: str) -> IngestResult:
-    return await _do_ingest(connection_id)
+async def ingest_from_connection(connection_id: str, viewer_id: str = "") -> IngestResult:
+    return await _do_ingest(connection_id, viewer_id=viewer_id)
 
 
 async def _do_ingest(
-    connection_id: str, provider_hint: str = ""
+    connection_id: str, provider_hint: str = "", viewer_id: str = ""
 ) -> IngestResult:
     """Core ingestion logic for a single connection."""
     settings = get_settings()
@@ -1242,9 +1313,14 @@ async def _do_ingest(
         filtered_entities.append(entity)
     entities = filtered_entities
 
+    # Tag all entities with the viewer who triggered ingestion
+    if viewer_id:
+        for entity in entities:
+            entity.viewer_id = viewer_id
+
     # Cross-source entity deduplication: if same normalized name + type exists
     # from a different source, merge properties instead of creating duplicates
-    existing_ids = {(e.source, e.source_id) for e in _entity_store}
+    existing_ids = {(e.source, e.source_id, e.viewer_id) for e in _entity_store}
     existing_by_norm: dict[tuple[str, str], int] = {}
     for idx, e in enumerate(_entity_store):
         norm_key = (e.name.lower().strip(), e.type)
@@ -1253,16 +1329,15 @@ async def _do_ingest(
 
     new_count = 0
     for entity in entities:
-        if (entity.source, entity.source_id) in existing_ids:
+        if (entity.source, entity.source_id, entity.viewer_id) in existing_ids:
             continue
 
         norm_key = (entity.name.lower().strip(), entity.type)
         if norm_key in existing_by_norm and entity.type in {"company", "person"}:
-            # Merge: update existing entity with additional source info
             existing_idx = existing_by_norm[norm_key]
             existing_entity = _entity_store[existing_idx]
-            if existing_entity.source != entity.source:
-                # Add cross-source reference
+            # Only merge within the same user's data
+            if existing_entity.source != entity.source and existing_entity.viewer_id == entity.viewer_id:
                 merged_props = {**existing_entity.properties}
                 for k, v in entity.properties.items():
                     if v and (k not in merged_props or not merged_props[k]):
@@ -1277,12 +1352,13 @@ async def _do_ingest(
                     properties=merged_props,
                     fetched_at=existing_entity.fetched_at,
                     connection_id=existing_entity.connection_id,
+                    viewer_id=existing_entity.viewer_id,
                 )
                 new_count += 1
                 continue
 
         _entity_store.append(entity)
-        existing_ids.add((entity.source, entity.source_id))
+        existing_ids.add((entity.source, entity.source_id, entity.viewer_id))
         existing_by_norm[norm_key] = len(_entity_store) - 1
         new_count += 1
 

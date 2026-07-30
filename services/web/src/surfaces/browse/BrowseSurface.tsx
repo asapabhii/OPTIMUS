@@ -20,7 +20,7 @@ import {
   Tag,
   Link2,
 } from "lucide-react";
-import { api } from "../../api/client";
+import { api, getUserId } from "../../api/client";
 
 interface EntitySummary {
   entity_id: string;
@@ -97,6 +97,7 @@ const PROP_LABELS: Record<string, string> = {
   link: "Link",
   parsed: "Parsed",
   parsed_content: "Content",
+  content: "Content",
 };
 
 function PropertyValue({ label, value }: { label: string; value: string }) {
@@ -127,7 +128,7 @@ function PropertyValue({ label, value }: { label: string; value: string }) {
             rel="noopener noreferrer"
             className="text-primary hover:underline inline-flex items-center gap-1"
           >
-            {value.length > 60 ? value.slice(0, 60) + "..." : value}
+            Open in {value.includes("notion") ? "Notion" : value.includes("docs.google") ? "Google Docs" : value.includes("sheets.google") ? "Google Sheets" : value.includes("drive.google") ? "Google Drive" : "browser"}
             <ExternalLink className="h-3 w-3 shrink-0" />
           </a>
         ) : isEmail ? (
@@ -137,9 +138,9 @@ function PropertyValue({ label, value }: { label: string; value: string }) {
           >
             {value}
           </a>
-        ) : label === "Content" || label === "Preview" ? (
-          <div className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap max-h-40 overflow-auto">
-            {value.slice(0, 1000)}
+        ) : label === "Content" || label === "Preview" || label === "Snippet" || label === "Data" ? (
+          <div className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap max-h-60 overflow-auto bg-accent/20 rounded-lg p-2">
+            {value.slice(0, 2000)}
           </div>
         ) : (
           <span>{value.length > 200 ? value.slice(0, 200) + "..." : value}</span>
@@ -413,7 +414,7 @@ export function BrowseSurface() {
     setLoading(true);
     try {
       const params: Record<string, string> = {
-        viewer_id: "00000000-0000-0000-0000-000000000001",
+        viewer_id: getUserId(),
       };
       if (typeFilter) params.entity_type = typeFilter;
       if (search) params.search = search;

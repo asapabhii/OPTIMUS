@@ -96,6 +96,7 @@ class LoginResponse(BaseModel):
     username: str
     user_id: str
     role: str
+    company_domain: str = ""
     expires_in: int
 
 
@@ -109,6 +110,7 @@ class SignupResponse(BaseModel):
     token: str
     username: str
     user_id: str
+    company_domain: str = ""
     message: str
 
 
@@ -184,6 +186,7 @@ async def login(request: LoginRequest) -> LoginResponse:
         username=user["username"],
         user_id=user["id"],
         role=user.get("role", "user"),
+        company_domain=user.get("company_domain", ""),
         expires_in=JWT_EXPIRY_HOURS * 3600,
     )
 
@@ -226,6 +229,7 @@ async def signup(request: SignupRequest) -> SignupResponse:
         token=token,
         username=user["username"],
         user_id=user["id"],
+        company_domain=company_domain,
         message="Account created successfully",
     )
 

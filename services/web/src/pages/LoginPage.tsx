@@ -27,11 +27,13 @@ export function LoginPage() {
         username: string;
         user_id: string;
         role: string;
+        company_domain: string;
       }>("/api/v1/auth/login", { username, password });
       localStorage.setItem("token", response.data.token);
       localStorage.setItem("username", response.data.username);
       localStorage.setItem("user_id", response.data.user_id);
       localStorage.setItem("user_role", response.data.role);
+      localStorage.setItem("company_domain", response.data.company_domain || "");
       navigate("/ask");
     } catch {
       setError("Invalid username or password");
@@ -51,11 +53,13 @@ export function LoginPage() {
         token: string;
         username: string;
         user_id: string;
+        company_domain: string;
         message: string;
       }>("/api/v1/auth/signup", { username, password, email });
       localStorage.setItem("token", response.data.token);
       localStorage.setItem("username", response.data.username);
       localStorage.setItem("user_id", response.data.user_id);
+      localStorage.setItem("company_domain", response.data.company_domain || "");
       setSuccess(response.data.message);
       navigate("/ask");
     } catch (err: unknown) {

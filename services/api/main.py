@@ -30,14 +30,35 @@ logger = get_logger("api")
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifecycle — setup and teardown."""
+    import asyncio
     settings = get_settings()
     logger.info(
         "starting",
         env=settings.app_env,
         service="optimus-api",
     )
+
+    # Auto-re-ingest if entity store is empty (e.g., after Railway redeploy)
+    asyncio.create_task(_auto_reingest_if_empty())
+
     yield
     logger.info("shutting_down")
+
+
+async def _auto_reingest_if_empty():
+    """If entity store is empty but we have connections, auto-ingest."""
+    import asyncio
+    await asyncio.sleep(3)  # let the app fully start
+    try:
+        from services.api.routes.ingest import get_entity_store, ingest_all_connections
+        store = get_entity_store()
+        if len(store) == 0:
+            logger.info("auto_reingest", reason="entity_store_empty_on_startup")
+            await ingest_all_connections()
+            store = get_entity_store()
+            logger.info("auto_reingest_complete", entities=len(store))
+    except Exception as e:
+        logger.warning("auto_reingest_failed", error=str(e))
 
 
 def create_app() -> FastAPI:
@@ -58,8 +79,8 @@ def create_app() -> FastAPI:
         ),
         version="0.1.0",
         lifespan=lifespan,
-        docs_url="/docs" if not settings.is_production else None,
-        redoc_url="/redoc" if not settings.is_production else None,
+        docs_url="/docs",
+        redoc_url="/redoc",
     )
 
     # Middleware (order matters — outermost first)
