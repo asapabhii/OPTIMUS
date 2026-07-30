@@ -216,7 +216,7 @@ AGENT_TOOLS = [
 
 def _exec_search_entities(args: dict) -> dict:
     store = get_entity_store()
-    query = args.get("query", "").lower()
+    query = args.get("query", "").lower().strip()
     etype = args.get("entity_type", "")
     source = args.get("source", "")
     limit = args.get("limit", 20)
@@ -227,10 +227,16 @@ def _exec_search_entities(args: dict) -> dict:
             continue
         if source and e.source != source:
             continue
-        if query and query not in e.name.lower() and not any(
-            query in str(v).lower() for v in e.properties.values()
-        ):
-            continue
+        # If entity_type is specified, skip text search (type filter is enough)
+        # Only apply text search when no type filter or when query is meaningful
+        if query and not etype:
+            if query not in e.name.lower() and not any(
+                query in str(v).lower() for v in e.properties.values()
+            ):
+                continue
+        elif query and etype:
+            # With type filter + query, search is optional (best-effort)
+            pass
         results.append({
             "id": e.id, "name": e.name, "type": e.type,
             "source": e.source, "properties": e.properties,

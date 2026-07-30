@@ -359,11 +359,16 @@ export function AskSurface() {
         };
 
         setSessions((prev) =>
-          prev.map((s) =>
-            s.id === sessionId
-              ? { ...s, messages: [...s.messages, errorPair], updatedAt: Date.now() }
-              : s
-          )
+          prev.map((s) => {
+            if (s.id !== sessionId) return s;
+            const msgs = [...s.messages];
+            const lastIdx = msgs.length - 1;
+            if (lastIdx >= 0 && msgs[lastIdx].question === text && msgs[lastIdx].answer.answer === "") {
+              msgs[lastIdx] = { ...msgs[lastIdx], answer: errorPair.answer };
+              return { ...s, messages: msgs, updatedAt: Date.now() };
+            }
+            return { ...s, messages: [...s.messages, errorPair], updatedAt: Date.now() };
+          })
         );
       } finally {
         setLoading(false);
@@ -688,18 +693,6 @@ export function AskSurface() {
                 </div>
               ))}
 
-              {loading && (
-                <div className="flex gap-3 animate-fade-in">
-                  <img src="/logo.svg" alt="" className="w-7 h-7 rounded-lg shrink-0 animate-pulse" />
-                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground/60 py-2">
-                    <div className="flex gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: "300ms" }} />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>

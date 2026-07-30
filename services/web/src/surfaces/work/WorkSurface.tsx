@@ -378,11 +378,13 @@ function formatMarkdown(text: string): string {
   return text
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.*?)\*/g, "<em>$1</em>")
-    .replace(/`(.*?)`/g, "<code>$1</code>")
-    .replace(/^### (.*$)/gm, "<h3>$1</h3>")
-    .replace(/^## (.*$)/gm, "<h2>$1</h2>")
-    .replace(/^# (.*$)/gm, "<h1>$1</h1>")
-    .replace(/^- (.*$)/gm, "<li>$1</li>")
-    .replace(/^\d+\. (.*$)/gm, "<li>$1</li>")
+    .replace(/`(.*?)`/g, "<code class='px-1 py-0.5 rounded bg-white/10 text-xs'>$1</code>")
+    .replace(/^#{4,} (.*$)/gm, "<h4 class='text-sm font-semibold mt-3 mb-1'>$1</h4>")
+    .replace(/^### (.*$)/gm, "<h3 class='text-base font-semibold mt-4 mb-1.5'>$1</h3>")
+    .replace(/^## (.*$)/gm, "<h2 class='text-lg font-bold mt-4 mb-2'>$1</h2>")
+    .replace(/^# (.*$)/gm, "<h1 class='text-xl font-bold mt-4 mb-2'>$1</h1>")
+    .replace(/^- (.*$)/gm, "<li class='ml-4 list-disc'>$1</li>")
+    .replace(/^\d+\. (.*$)/gm, "<li class='ml-4 list-decimal'>$1</li>")
+    .replace(/\n\n/g, "<br/><br/>")
     .replace(/\n/g, "<br/>");
 }

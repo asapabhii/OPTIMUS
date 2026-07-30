@@ -325,6 +325,59 @@ def _build_data_analytics(store: list[EntityRecord]) -> str:
             detail = f" ({', '.join(extras)})" if extras else ""
             lines.append(f"  {s.name}{detail}")
 
+    # Calendar / event analytics
+    events = by_type.get("event", [])
+    if events:
+        lines.append(f"\nCALENDAR EVENTS ({len(events)}):")
+        for ev in events[:20]:
+            start = ev.properties.get("start", "")
+            end = ev.properties.get("end", "")
+            description = ev.properties.get("description", "")[:100]
+            location = ev.properties.get("location", "")
+            attendees = ev.properties.get("attendees", "")
+            extras = []
+            if start:
+                extras.append(f"starts: {start}")
+            if end:
+                extras.append(f"ends: {end}")
+            if location:
+                extras.append(f"at {location}")
+            if attendees:
+                extras.append(f"with {attendees}")
+            detail = f" ({', '.join(extras)})" if extras else ""
+            lines.append(f"  {ev.name}{detail}")
+            if description:
+                lines.append(f"    Description: {description}")
+
+    # Slack / channel analytics
+    channels = by_type.get("channel", [])
+    if channels:
+        lines.append(f"\nSLACK CHANNELS ({len(channels)}):")
+        for ch in channels[:15]:
+            members = ch.properties.get("num_members", "")
+            topic = ch.properties.get("topic", "")
+            purpose = ch.properties.get("purpose", "")
+            extras = []
+            if members:
+                extras.append(f"{members} members")
+            if topic:
+                extras.append(f"topic: {topic}")
+            detail = f" ({', '.join(extras)})" if extras else ""
+            lines.append(f"  #{ch.name}{detail}")
+            if purpose:
+                lines.append(f"    Purpose: {purpose}")
+
+    # Slack messages
+    messages = by_type.get("message", [])
+    if messages:
+        lines.append(f"\nSLACK MESSAGES ({len(messages)}):")
+        for msg in messages[:20]:
+            channel = msg.properties.get("channel", "")
+            user = msg.properties.get("user", "")
+            text = msg.properties.get("text", msg.name)[:200]
+            ts = msg.properties.get("timestamp", "")
+            lines.append(f"  [{ts}] #{channel} @{user}: {text}")
+
     return "\n".join(lines)
 
 
@@ -344,6 +397,22 @@ def _build_relevant_context(
     recency_keywords = {"recent", "latest", "last", "newest", "new", "today", "yesterday"}
     is_recency_query = any(kw in q for kw in recency_keywords)
 
+    # Map common question keywords to entity types
+    TYPE_KEYWORDS: dict[str, set[str]] = {
+        "event": {"meeting", "meetings", "calendar", "schedule", "upcoming", "event", "events", "call", "calls"},
+        "deal": {"deal", "deals", "pipeline", "revenue", "sales", "opportunity", "opportunities"},
+        "person": {"contact", "contacts", "people", "person", "who"},
+        "company": {"company", "companies", "organization", "org", "account", "accounts"},
+        "email": {"email", "emails", "mail", "inbox", "message", "messages", "sent"},
+        "document": {"document", "documents", "doc", "docs", "file", "files", "page", "pages", "sheet", "sheets", "spreadsheet", "notion", "drive"},
+        "channel": {"slack", "channel", "channels"},
+    }
+
+    inferred_types: set[str] = set()
+    for etype, keywords in TYPE_KEYWORDS.items():
+        if any(kw in q for kw in keywords):
+            inferred_types.add(etype)
+
     matched: list[EntityRecord] = []
     for entity in store:
         name_match = any(
@@ -351,8 +420,9 @@ def _build_relevant_context(
             for word in q.split()
             if len(word) > 2
         )
-        type_match = entity.type in q
-        if name_match or type_match:
+        type_match = entity.type in q or entity.type in inferred_types
+        source_match = entity.source.replace("-", " ").replace("_", " ") in q or entity.source in q
+        if name_match or type_match or source_match:
             matched.append(entity)
 
     # Sort by date if recency query and entities have dates

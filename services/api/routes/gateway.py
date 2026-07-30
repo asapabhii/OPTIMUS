@@ -202,7 +202,10 @@ async def slack_events(request: Request) -> Response:
 
     # URL verification challenge
     if payload.get("type") == "url_verification":
-        return Response(content=payload["challenge"], media_type="text/plain")
+        return Response(
+            content=json.dumps({"challenge": payload["challenge"]}),
+            media_type="application/json",
+        )
 
     # Verify signature
     timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
